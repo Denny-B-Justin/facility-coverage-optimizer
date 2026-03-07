@@ -303,54 +303,58 @@ print("  Catchment areas computed.")
 
 # TRANSFORM: COMPUTE POPULATION COVERAGE
 
-def compute_coverage(facilities_sdf, population_sdf):
-    """Computes which population points fall inside each facility's catchment."""
-    fac_pdf = facilities_sdf.select("ID", "cachment_area_wkt").toPandas()
-    fac_pdf = fac_pdf.dropna(subset=["cachment_area_wkt"])
-    fac_shapes = {row["ID"]: wkt_loads(row["cachment_area_wkt"]) for _, row in fac_pdf.iterrows()}
+def compute_coverage_h3(facilities_sdf, population_sdf, h3_resolution: int):
+    """
+    Computes which population points fall inside each facility's catchment using H3.
+    Uses distributed Spark joins instead of Python loops.
+    """
+    fac_count = facilities_sdf.count()
+    pop_count = population_sdf.count()
+    print(f"  Computing coverage: {fac_count} facilities x {pop_count:,} pop points (H3)...")
 
-    pop_pdf = population_sdf.select("ID", "xcoord", "ycoord", "population").toPandas()
+    # Get H3 cells covering each facility's catchment area
+    fac_h3_sdf = facilities_sdf.select(
+        F.col("ID").alias("facility_ID"),
+        F.explode(
+            F.expr(f"h3_polyfillash3(cachment_area_wkt, {h3_resolution})")
+        ).alias("h3_index")
+    )
 
-    print(f"  Computing coverage: {len(fac_shapes)} facilities x {len(pop_pdf):,} pop points...")
+    # Join facilities H3 cells with population H3 indexes
+    coverage_sdf = fac_h3_sdf.join(
+        population_sdf.select(
+            F.col("ID").alias("pop_ID"),
+            "h3_index",
+            "population"
+        ),
+        on="h3_index",
+        how="inner"
+    ).drop("h3_index")
 
-    rows = []
-    for fac_id, catchment in fac_shapes.items():
-        mask = pop_pdf.apply(lambda r: Point(r["xcoord"], r["ycoord"]).within(catchment), axis=1)
-        covered = pop_pdf[mask]
-        rows.append({
-            "facility_ID": fac_id,
-            "covered_pop_ids": covered["ID"].tolist(),
-            "pop_with_access": float(covered["population"].sum()),
-        })
+    # Aggregate coverage per facility
+    facility_coverage_sdf = coverage_sdf.groupBy("facility_ID").agg(
+        F.sum("population").alias("pop_with_access"),
+        F.collect_list("pop_ID").alias("covered_pop_ids")
+    )
 
-    coverage_pdf = pd.DataFrame(rows)
-    coverage_sdf = spark.createDataFrame(coverage_pdf)
-
+    # Join back to facilities
     result_sdf = facilities_sdf.join(
-        coverage_sdf.withColumnRenamed("facility_ID", "ID"),
+        facility_coverage_sdf.withColumnRenamed("facility_ID", "ID"),
         on="ID",
-        how="left",
+        how="left"
     ).fillna({"pop_with_access": 0.0})
 
-    flat_rows = [
-        (fid, pid)
-        for _, r in coverage_pdf.iterrows()
-        for pid in r["covered_pop_ids"]
-    ]
-    flat_schema = StructType([
-        StructField("facility_ID", StringType()),
-        StructField("pop_ID", StringType()),
-    ])
-    flat_sdf = spark.createDataFrame(flat_rows, schema=flat_schema)
+    # Flat coverage table (facility_ID, pop_ID pairs)
+    flat_sdf = coverage_sdf.select("facility_ID", "pop_ID").distinct()
 
     return result_sdf, flat_sdf
 
 
 print("Computing coverage for existing facilities...")
-selected_hosp_sdf, hosp_coverage_sdf = compute_coverage(selected_hosp_sdf, population_aoi_sdf)
+selected_hosp_sdf, hosp_coverage_sdf = compute_coverage_h3(selected_hosp_sdf, population_aoi_sdf, H3_RESOLUTION)
 
 print("Computing coverage for potential locations...")
-potential_locations_sdf, potential_coverage_sdf = compute_coverage(potential_locations_sdf, population_aoi_sdf)
+potential_locations_sdf, potential_coverage_sdf = compute_coverage_h3(potential_locations_sdf, population_aoi_sdf, H3_RESOLUTION)
 
 # COMMAND ----------
 
