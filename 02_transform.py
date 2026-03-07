@@ -124,6 +124,7 @@ print(f"  Map center: lat={CENTER_LAT:.4f}, lon={CENTER_LON:.4f}")
 # COMMAND ----------
 
 # TRANSFORM: LOAD POPULATION AND FILTER TO AOI
+# Long-running – takes 4 minutes to process
 
 def load_population_aoi(
     source_table: str,
@@ -313,6 +314,7 @@ print("  H3 indexes added.")
 # COMMAND ----------
 
 # TRANSFORM: COMPUTE POPULATION COVERAGE
+# Long-running – takes 8 minutes to process
 
 def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution: int, k_rings: int):
     """
@@ -325,11 +327,11 @@ def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution:
     pop_count = population_sdf.count()
     print(f"  Computing coverage: {fac_count} facilities x {pop_count:,} pop points (H3 k={k_rings})...")
 
-    # Get H3 cells within k rings of each facility (disk, not ring)
+    # Get H3 cells within k rings of each facility
     fac_h3_sdf = facilities_sdf.select(
         F.col("ID").alias("facility_ID"),
         F.explode(
-            F.expr(f"h3_griddisk(h3_index, {k_rings})")
+            F.expr(f"h3_kring(h3_index, {k_rings})")
         ).alias("h3_index")
     )
 
