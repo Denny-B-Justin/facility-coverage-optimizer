@@ -32,7 +32,7 @@ print(f"Spark version: {spark.version}")
 # CONFIGURATION
 
 UC_CATALOG = "prd_mega"
-UC_SCHEMA = "sgpbpi163"
+UC_SCHEMA = "pim"
 COUNTRY_ISO3 = "ZMB"
 POPULATION_YEAR = 2025
 
@@ -46,6 +46,7 @@ GRID_SPACING = 0.03
 N_CLUSTERS = 100
 
 TARGET_NEW_FACILITIES = 7
+H3_RESOLUTION = 8  # Must match extraction resolution
 
 # Derived table names
 GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}"
@@ -132,10 +133,10 @@ print(f"  Map center: lat={CENTER_LAT:.4f}, lon={CENTER_LON:.4f}")
 
 # TRANSFORM: LOAD POPULATION AND FILTER TO AOI
 
-def load_population_aoi(table_name: str, boundary_wkt: str):
+def load_population_aoi(table_name: str, boundary_wkt: str, h3_resolution: int):
     """
-    Loads population from UC table and filters to AOI.
-    No raster processing needed - data already extracted to table.
+    Loads population from UC table and filters to AOI using H3 index.
+    Uses Photon-accelerated H3 functions for fast spatial filtering.
     """
     print(f"Loading population from: {table_name}")
 
@@ -143,17 +144,29 @@ def load_population_aoi(table_name: str, boundary_wkt: str):
     total_rows = sdf.count()
     print(f"  Total pixels in table: {total_rows:,}")
 
-    sdf = (
-        sdf.withColumn("geom_wkt", st_point_wkt(F.col("xcoord"), F.col("ycoord")))
-        .withColumn("row_id", F.monotonically_increasing_id())
-        .withColumn("ID", F.concat(F.col("row_id").cast(StringType()), F.lit("_pop")))
-    )
-
     total_pop = sdf.agg(F.sum("population")).collect()[0][0]
     print(f"  Total population (country): {round(total_pop / 1_000_000, 2)} million")
 
-    boundary_lit = F.lit(boundary_wkt)
-    sdf_aoi = sdf.filter(st_within_wkt(F.col("geom_wkt"), boundary_lit))
+    # Get H3 cells covering the AOI polygon (Photon-accelerated)
+    print(f"  Computing H3 coverage at resolution {h3_resolution}...")
+    aoi_h3_df = spark.sql(f"""
+        SELECT explode(h3_polyfillash3('{boundary_wkt}', {h3_resolution})) as h3_index
+    """)
+    h3_count = aoi_h3_df.count()
+    print(f"  H3 cells covering AOI: {h3_count:,}")
+
+    # Filter population by H3 index (fast native join)
+    sdf_aoi = sdf.join(F.broadcast(aoi_h3_df), on="h3_index", how="inner")
+
+    aoi_count = sdf_aoi.count()
+    print(f"  Population pixels in AOI: {aoi_count:,}")
+
+    # Add ID column
+    sdf_aoi = (
+        sdf_aoi.withColumn("geom_wkt", st_point_wkt(F.col("xcoord"), F.col("ycoord")))
+        .withColumn("row_id", F.monotonically_increasing_id())
+        .withColumn("ID", F.concat(F.col("row_id").cast(StringType()), F.lit("_pop")))
+    )
 
     aoi_total = sdf_aoi.agg(F.sum("population")).collect()[0][0]
     print(f"  Total population (AOI): {round(aoi_total):,}")
@@ -170,7 +183,7 @@ def load_population_aoi(table_name: str, boundary_wkt: str):
     return sdf_aoi.cache()
 
 
-population_aoi_sdf = load_population_aoi(POPULATION_TABLE, boundary_wkt)
+population_aoi_sdf = load_population_aoi(POPULATION_TABLE, boundary_wkt, H3_RESOLUTION)
 population_aoi_sdf.count()
 total_population = population_aoi_sdf.agg(F.sum("population")).collect()[0][0]
 

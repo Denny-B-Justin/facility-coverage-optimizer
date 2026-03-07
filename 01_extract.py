@@ -21,6 +21,7 @@ import pycountry
 import rasterio
 from rasterio.windows import Window
 from gadm import GADMDownloader
+from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, DoubleType, StringType
 
 # COMMAND ----------
@@ -195,11 +196,13 @@ def extract_population_chunked(
     raster_path: str,
     table_name: str,
     chunk_size: int = 1024,
+    h3_resolution: int = 8,
     force: bool = False,
 ) -> int:
     """
     Reads WorldPop raster in chunks and saves populated pixels to UC table.
     Uses windowed reading to avoid loading entire raster into memory.
+    Adds H3 index for fast spatial filtering.
     Returns total number of populated pixels.
     """
     if not force and table_exists(table_name):
@@ -208,6 +211,7 @@ def extract_population_chunked(
         return count
 
     print(f"Processing raster in chunks: {raster_path}")
+    print(f"  H3 resolution: {h3_resolution}")
 
     schema = StructType([
         StructField("xcoord", DoubleType(), False),
@@ -262,8 +266,14 @@ def extract_population_chunked(
 
                 sdf = spark.createDataFrame(pdf, schema=schema)
 
+                # Add H3 index (Photon-accelerated)
+                sdf = sdf.withColumn(
+                    "h3_index",
+                    F.expr(f"h3_longlatash3(xcoord, ycoord, {h3_resolution})")
+                )
+
                 if first_chunk:
-                    sdf.write.mode("overwrite").saveAsTable(table_name)
+                    sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(table_name)
                     first_chunk = False
                 else:
                     sdf.write.mode("append").saveAsTable(table_name)
