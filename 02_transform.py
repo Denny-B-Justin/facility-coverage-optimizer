@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely rasterio pycountry gurobipy folium plotly scikit-learn pyproj
+# MAGIC %pip install geopandas shapely rasterio pycountry folium plotly scikit-learn pyproj pulp highspy
 
 # COMMAND ----------
 
@@ -21,8 +21,7 @@ from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructType, StructField
 from pyspark.sql.functions import udf
 
-import gurobipy as gp
-from gurobipy import GRB
+import pulp
 
 print(f"Spark version: {spark.version}")
 
@@ -455,7 +454,7 @@ print(f"Maximum access attainable: {max_access_possible}%")
 
 # VISUALIZE: CURRENT COVERAGE MAP
 
-_POP_VIZ_SAMPLE = 20_000
+_POP_VIZ_SAMPLE = 5_000
 
 pop_with_access_pdf = pop_with_access_sdf.sample(
     fraction=min(1.0, _POP_VIZ_SAMPLE / max(1, pop_with_access_sdf.count())), seed=1
@@ -501,96 +500,103 @@ folium_map
 
 # COMMAND ----------
 
-# OPTIMIZE: PREPARE GUROBI INPUTS
+# OPTIMIZE: PREPARE INPUTS (AGGREGATED BY H3 CELL)
 
-print("Collecting Gurobi inputs from Spark...")
+print("Preparing optimization inputs (aggregated by H3 cell)...")
 
-w_rows = population_aoi_sdf.select("ID", "population").collect()
-w = {row["ID"]: float(row["population"]) for row in w_rows}
+# Aggregate population by H3 cell to reduce problem size
+pop_by_h3_sdf = population_aoi_sdf.groupBy("h3_index").agg(
+    F.sum("population").alias("population")
+)
+pop_h3_rows = pop_by_h3_sdf.collect()
+w = {row["h3_index"]: float(row["population"]) for row in pop_h3_rows}
 I = sorted(w.keys())
+print(f"  Demand cells (H3): {len(I):,}")
 
+# Facility IDs
 hosp_id_rows = selected_hosp_sdf.select("ID").collect()
 potential_id_rows = potential_locations_sdf.select("ID").collect()
 J_existing = sorted(row["ID"] for row in hosp_id_rows)
 J_potential = sorted(row["ID"] for row in potential_id_rows)
 J = sorted(set(J_existing) | set(J_potential))
+print(f"  Facilities: {len(J):,} (existing: {len(J_existing)}, potential: {len(J_potential)})")
 
+# Coverage: which H3 cells are covered by which facilities
 all_coverage_sdf = hosp_coverage_sdf.select("facility_ID", "pop_ID").union(
     potential_coverage_sdf.select("facility_ID", "pop_ID")
 )
 
+# Join coverage with population to get H3 index, then aggregate
+coverage_h3_sdf = all_coverage_sdf.join(
+    population_aoi_sdf.select("ID", "h3_index"),
+    all_coverage_sdf["pop_ID"] == population_aoi_sdf["ID"],
+    "inner"
+).select("facility_ID", "h3_index").distinct()
+
 JI_rows = (
-    all_coverage_sdf.groupBy("pop_ID")
-    .agg(F.collect_list("facility_ID").alias("fac_ids"))
+    coverage_h3_sdf.groupBy("h3_index")
+    .agg(F.collect_set("facility_ID").alias("fac_ids"))
     .collect()
 )
 
-JI = {row["pop_ID"]: sorted(row["fac_ids"]) for row in JI_rows}
-
-print(f"  Demand points (I): {len(I):,}")
-print(f"  Facilities (J): {len(J):,}")
-print(f"  Existing: {len(J_existing)}, Potential: {len(J_potential)}")
+JI = {row["h3_index"]: list(row["fac_ids"]) for row in JI_rows}
+print(f"  Coverage pairs: {sum(len(v) for v in JI.values()):,}")
 
 # COMMAND ----------
 
-# OPTIMIZE: GUROBI MCLP
+# OPTIMIZE: MCLP WITH PULP (OPEN SOURCE)
 
-def model_max_covering_gurobi(w, I, J, JI, p, J_existing, model):
-    """Gurobi Maximum Covering Location Problem (MCLP)."""
-    model.remove(model.getVars())
-    model.remove(model.getConstrs())
+def solve_mclp_pulp(w, I, J, JI, p, J_existing):
+    """Maximum Covering Location Problem using PuLP with HiGHS solver."""
+    model = pulp.LpProblem("MCLP", pulp.LpMaximize)
 
-    x = model.addVars(J, vtype=GRB.BINARY, name="x")
-    z = model.addVars(I, vtype=GRB.BINARY, name="z")
+    # Decision variables
+    x = pulp.LpVariable.dicts("x", J, cat=pulp.LpBinary)
+    z = pulp.LpVariable.dicts("z", I, cat=pulp.LpBinary)
 
-    model.setObjective(gp.quicksum(w[i] * z[i] for i in I), GRB.MAXIMIZE)
+    # Objective: maximize covered population
+    model += pulp.lpSum(w[i] * z[i] for i in I)
 
+    # Coverage constraints
     for i in I:
         if JI.get(i):
-            model.addConstr(z[i] <= gp.quicksum(x[j] for j in JI[i]), name=f"cover_{i}")
+            model += z[i] <= pulp.lpSum(x[j] for j in JI[i])
         else:
-            model.addConstr(z[i] == 0, name=f"cover_{i}_zero")
+            model += z[i] == 0
 
-    model.addConstr(gp.quicksum(x[j] for j in J) <= len(J_existing) + p, name="budget")
+    # Budget constraint
+    model += pulp.lpSum(x[j] for j in J) <= len(J_existing) + p
 
+    # Existing facilities must stay open
     for j in J_existing:
-        model.addConstr(x[j] == 1, name=f"existing_{j}")
+        model += x[j] == 1
 
-    model.setParam("OutputFlag", 0)
-    model.optimize()
+    # Solve with HiGHS
+    solver = pulp.HiGHS_CMD(msg=0)
+    model.solve(solver)
 
-    x_sol = {j: x[j].X for j in J}
-    z_sol = {i: z[i].X for i in I}
+    if model.status != pulp.LpStatusOptimal:
+        print(f"  Warning: solver status = {pulp.LpStatus[model.status]}")
 
-    selected_facilities = [j for j in J if x_sol[j] > 0.5]
-    covered_demand = [i for i in I if z_sol[i] > 0.5]
+    selected_facilities = [j for j in J if x[j].varValue and x[j].varValue > 0.5]
+    covered_h3 = [i for i in I if z[i].varValue and z[i].varValue > 0.5]
 
-    return model.ObjVal, selected_facilities, covered_demand
+    return pulp.value(model.objective), selected_facilities, covered_h3
 
 
-# Gurobi license params
-params = {
-    "WLSACCESSID": "REDACTED",
-    "WLSSECRET": "REDACTED",
-    "LICENSEID": 0,
-}
-
-env = gp.Env(params=params)
-model = gp.Model(env=env)
-
-pareto_gurobi = []
+pareto_results = []
 previous_obj = -1
 
-print("Running Gurobi optimization...")
+print("Running MCLP optimization (PuLP + HiGHS)...")
 for p in range(1, len(J_potential) + 1):
-    obj, selected_facilities, covered_demand = model_max_covering_gurobi(
-        w, I, J, JI, p, J_existing, model
+    obj, selected_facilities, covered_h3 = solve_mclp_pulp(
+        w, I, J, JI, p, J_existing
     )
-    pareto_gurobi.append({
+    pareto_results.append({
         "p": p,
         "objective": obj,
         "selected_facilities": selected_facilities,
-        "covered_demand": covered_demand,
+        "covered_h3": covered_h3,
     })
 
     if round(obj) == round(previous_obj):
@@ -604,14 +610,14 @@ for p in range(1, len(J_potential) + 1):
 
 # VISUALIZE: PARETO FRONTIER
 
-x_values = [len(J_existing) + item["p"] for item in pareto_gurobi]
-y_values = [round(100 * item["objective"] / total_population, 2) for item in pareto_gurobi]
+x_values = [len(J_existing) + item["p"] for item in pareto_results]
+y_values = [round(100 * item["objective"] / total_population, 2) for item in pareto_results]
 
 x_values.insert(0, len(J_existing))
 y_values.insert(0, current_access)
 
 fig = go.Figure(
-    data=go.Scatter(x=x_values, y=y_values, mode="lines+markers", name="Gurobi Pareto Frontier")
+    data=go.Scatter(x=x_values, y=y_values, mode="lines+markers", name="Pareto Frontier")
 )
 fig.update_layout(
     xaxis_title="Number of facilities (existing + new)",
@@ -647,9 +653,9 @@ fig.show()
 
 # VISUALIZE: OPTIMIZED RESULT FOR TARGET_NEW_FACILITIES
 
-entry = next(item for item in pareto_gurobi if item["p"] == TARGET_NEW_FACILITIES)
+entry = next(item for item in pareto_results if item["p"] == TARGET_NEW_FACILITIES)
 opened_ids = set(entry["selected_facilities"])
-covered_ids_set = set(entry["covered_demand"])
+covered_h3_set = set(entry["covered_h3"])
 
 new_facility_ids = opened_ids - set(J_existing)
 
@@ -659,15 +665,16 @@ new_fac_pdf = (
     .toPandas()
 )
 
-covered_ids_sdf = spark.createDataFrame(pd.DataFrame({"pop_ID": list(covered_ids_set)}))
+# Join by H3 index to get covered/uncovered population
+covered_h3_sdf = spark.createDataFrame(pd.DataFrame({"h3_covered": list(covered_h3_set)}))
 pop_covered_sdf = population_aoi_sdf.join(
-    covered_ids_sdf,
-    population_aoi_sdf["ID"] == covered_ids_sdf["pop_ID"],
+    covered_h3_sdf,
+    population_aoi_sdf["h3_index"] == covered_h3_sdf["h3_covered"],
     "inner",
-).drop("pop_ID")
+).drop("h3_covered")
 pop_uncovered_sdf = population_aoi_sdf.join(
-    covered_ids_sdf,
-    population_aoi_sdf["ID"] == covered_ids_sdf["pop_ID"],
+    covered_h3_sdf,
+    population_aoi_sdf["h3_index"] == covered_h3_sdf["h3_covered"],
     "left_anti",
 )
 
