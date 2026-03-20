@@ -37,8 +37,7 @@ POPULATION_YEAR = 2025
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
 DISTANCE_METERS = 10000
-dis_km = int(DISTANCE_METERS / 1000)
-distance_name = f"{dis_km}km"
+distance_name = "10km"
 MAPBOX_ACCESS_TOKEN = ""
 MAPBOX_MODE = "driving"
 
@@ -46,7 +45,7 @@ POTENTIAL_TYPE = "grid"  # "grid" or "kmeans"
 GRID_SPACING = 0.03
 N_CLUSTERS = 100
 
-TARGET_NEW_FACILITIES = 50
+TARGET_NEW_FACILITIES = 10
 H3_RESOLUTION = 8  # Must match extraction resolution
 
 # Set to True to recompute cached results
@@ -68,14 +67,6 @@ FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.low
 FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
 POTENTIAL_LOCATIONS_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{COUNTRY_ISO3.lower()}_{distance_name}"
 POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
-
-# COMMAND ----------
-
-print("Population AOI Table:", POPULATION_AOI_TABLE)
-print("Facilities H3 Table:" , FACILITIES_H3_TABLE)
-print("Facilities Coverage Table:", FACILITIES_COVERAGE_TABLE)
-print("Potential Locations Table:", POTENTIAL_LOCATIONS_TABLE)
-print("Potential Coverage Table:", POTENTIAL_COVERAGE_TABLE)
 
 # COMMAND ----------
 
@@ -635,6 +626,92 @@ pareto_results = solve_mclp_greedy(w, JI, J_existing, J_potential, TARGET_NEW_FA
 
 # COMMAND ----------
 
+# MAGIC %md
+# MAGIC # Gurobi Review
+
+# COMMAND ----------
+
+# MAGIC %pip install gurobipy
+
+# COMMAND ----------
+
+import gurobipy as gp
+from gurobipy import GRB
+
+# COMMAND ----------
+
+def model_max_covering_gurobi(w, I, J, JI, p, J_existing,model):
+    # Decision variables
+    x = model.addVars(J, vtype=GRB.BINARY, name="x")  # Facility open
+    z = model.addVars(I, vtype=GRB.BINARY, name="z")  # Demand covered
+
+    # Objective: Maximize covered population
+    model.setObjective(gp.quicksum(w[i] * z[i] for i in I), GRB.MAXIMIZE)
+
+    # Constraint: Coverage only if reachable and facility is open
+    for i in I:
+        if JI.get(i):  # only if demand point i has at least one covering facility
+            model.addConstr(z[i] <= gp.quicksum(x[j] for j in JI[i]), name=f"cover_{i}")
+        else:
+            model.addConstr(z[i] == 0, name=f"cover_{i}_zero")
+
+    # Constraint: Limit number of new facilities (existing ones are fixed as open)
+    model.addConstr(gp.quicksum(x[j] for j in J) <= len(J_existing) + p, name="budget")
+
+    # Fix existing facilities
+    for j in J_existing:
+        model.addConstr(x[j] == 1, name=f"existing_{j}")
+
+    model.setParam("OutputFlag", 0)
+    model.optimize()
+
+    # Extract solution
+    x_sol = {j: x[j].X for j in J}
+    z_sol = {i: z[i].X for i in I}
+
+    selected_facilities = [j for j in J if x_sol[j] > 0.5]
+    covered_demand = [i for i in I if z_sol[i] > 0.5]
+
+    return model.ObjVal, selected_facilities, covered_demand
+
+# COMMAND ----------
+
+
+previous_obj = -1
+
+params = {
+    "WLSACCESSID": "65a1e39f-cdce-4972-92c9-96aa5662fcfd",
+    "WLSSECRET": "3a9998e9-54d7-49f0-917b-6c55ea711f92",
+    "LICENSEID": 2785504
+}
+
+env = gp.Env(params=params)
+model = gp.Model(env=env)
+
+pareto_gurobi = []
+# for p in range(1, len(potential_locations)):
+for p in range(1, 11):
+    obj, selected_facilities, covered_demand = model_max_covering_gurobi(w, I, J, JI, p, J_existing,model)
+    pareto_gurobi.append({
+        'p': p,
+        'objective': obj,
+        'selected_facilities': selected_facilities,
+        'covered_demand': covered_demand
+    })
+    # Break if no improvement in objective
+    if round(obj) == round(previous_obj):
+      break
+
+    previous_obj = obj
+    print(f"Gurobi | p = {p} | Covered pop = {obj:.0f} | Facilities: {len(selected_facilities)}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## Gurobi done
+
+# COMMAND ----------
+
 # VISUALIZE: PARETO FRONTIER
 
 x_values = [len(J_existing) + item["p"] for item in pareto_results]
@@ -712,48 +789,64 @@ pop_uncovered_pdf = pop_uncovered_sdf.sample(
     fraction=min(1.0, _POP_VIZ_SAMPLE / max(1, pop_uncovered_sdf.count())), seed=4
 ).toPandas()
 
-folium_map = fl.Map(location=[CENTER_LAT, CENTER_LON], zoom_start=8, tiles="OpenStreetMap")
-geo_adm = fl.GeoJson(
-    data=selected_gadm_gdf.iloc[0]["geometry"].__geo_interface__,
-    style_function=lambda x: {"color": "orange"},
-)
-geo_adm.add_to(folium_map)
-
-for _, row in selected_hosp_pdf_viz.iterrows():
-    fl.Marker([row["lat"], row["lon"]], icon=fl.Icon(color="blue")).add_to(folium_map)
-
-for _, row in new_fac_pdf.iterrows():
-    fl.Marker([row["lat"], row["lon"]], icon=fl.Icon(color="darkpurple")).add_to(folium_map)
-
-for _, row in pop_uncovered_pdf.iterrows():
-    fl.CircleMarker(
-        location=[row["ycoord"], row["xcoord"]],
-        radius=5,
-        color=None,
-        fill=True,
-        fill_color="red",
-        fill_opacity=row["opacity"],
-    ).add_to(folium_map)
-
-for _, row in pop_covered_pdf.iterrows():
-    fl.CircleMarker(
-        location=[row["ycoord"], row["xcoord"]],
-        radius=5,
-        color=None,
-        fill=True,
-        fill_color="green",
-        fill_opacity=row["opacity"],
-    ).add_to(folium_map)
 
 print(f"Optimized result with {TARGET_NEW_FACILITIES} new facilities:")
 print(f"  New facility IDs: {list(new_facility_ids)}")
 print(f"  Coverage: {round(100 * entry['objective'] / total_population, 2)}%")
 
-folium_map
 
 # COMMAND ----------
 
-new_fac_pdf
+new_facility_ids
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC # Gurobi Results
+
+# COMMAND ----------
+
+entry = next(item for item in pareto_gurobi if item["p"] == 7)
+opened_ids = set(entry["selected_facilities"])
+covered_h3_set = set(entry["covered_h3"])
+
+new_facility_ids_gu = opened_ids - set(J_existing)
+
+new_fac_pdf_gu = (
+    potential_locations_sdf.filter(F.col("ID").isin(new_facility_ids))
+    .select("ID", "lon", "lat")
+    .toPandas()
+)
+
+# Join by H3 index to get covered/uncovered population
+covered_h3_sdf = spark.createDataFrame(pd.DataFrame({"h3_covered": list(covered_h3_set)}))
+pop_covered_sdf = population_aoi_sdf.join(
+    covered_h3_sdf,
+    population_aoi_sdf["h3_index"] == covered_h3_sdf["h3_covered"],
+    "inner",
+).drop("h3_covered")
+pop_uncovered_sdf = population_aoi_sdf.join(
+    covered_h3_sdf,
+    population_aoi_sdf["h3_index"] == covered_h3_sdf["h3_covered"],
+    "left_anti",
+)
+
+pop_covered_pdf = pop_covered_sdf.sample(
+    fraction=min(1.0, _POP_VIZ_SAMPLE / max(1, pop_covered_sdf.count())), seed=3
+).toPandas()
+pop_uncovered_pdf = pop_uncovered_sdf.sample(
+    fraction=min(1.0, _POP_VIZ_SAMPLE / max(1, pop_uncovered_sdf.count())), seed=4
+).toPandas()
+
+
+print(f"Optimized result with {TARGET_NEW_FACILITIES} new facilities:")
+print(f"  New facility IDs: {list(new_facility_ids)}")
+print(f"  Coverage: {round(100 * entry['objective'] / total_population, 2)}%")
+
+
+# COMMAND ----------
+
+new_fac_pdf_gu
 
 # COMMAND ----------
 
@@ -859,6 +952,10 @@ print("Pre-computation complete. Ready for per-step accessibility calculation.")
 
 # COMMAND ----------
 
+
+
+# COMMAND ----------
+
 print("Computing per-step LGU accessibility ...")
 n_existing = len(J_existing)
 result_rows = []
@@ -956,50 +1053,6 @@ print("=" * 60)
 
 # COMMAND ----------
 
-# cell 1b — Spatial join: assign 'district' to each new facility in result_pdf
-
-from shapely import wkt as shapely_wkt
-from shapely.geometry import Point
-
-# ── Load district boundaries ──────────────────────────────────────────────────
-print("Loading district boundaries ...")
-boundaries_sdf = spark.table("prd_mega.sgpbpi163.gadm_boundaries_lgu_zambia")
-boundaries_pdf = boundaries_sdf.select("LGU", "geometry_wkt").toPandas()
-
-# Parse WKT strings into Shapely geometries (skip any nulls/malformed rows)
-boundaries_pdf["geometry"] = boundaries_pdf["geometry_wkt"].apply(
-    lambda w: shapely_wkt.loads(w) if isinstance(w, str) and w.strip() else None
-)
-boundaries_pdf = boundaries_pdf.dropna(subset=["geometry"]).reset_index(drop=True)
-
-print(f"  Loaded {len(boundaries_pdf)} district polygons.")
-
-# ── Point-in-polygon lookup ───────────────────────────────────────────────────
-def find_district(lat, lon):
-    """Return the LGU name whose polygon contains (lon, lat), else None."""
-    if lat is None or lon is None or pd.isna(lat) or pd.isna(lon):
-        return None
-    pt = Point(lon, lat)          # Shapely Point is (x=lon, y=lat)
-    for _, row in boundaries_pdf.iterrows():
-        if row["geometry"].contains(pt):
-            return row["LGU"]
-    return None                   # point falls outside all boundaries
-
-print("Assigning district to each facility step ...")
-result_pdf["district"] = result_pdf.apply(
-    lambda r: find_district(r["lat"], r["lon"]), axis=1
-)
-
-# Quick sanity check
-unmatched = result_pdf["district"].isna().sum()
-if unmatched:
-    print(f"  ⚠️  {unmatched} row(s) could not be matched to a district "
-          f"(likely existing / null facilities).")
-print("  ✅ 'district' column added.")
-print(result_pdf[["total_facilities", "new_facility", "lat", "lon", "district"]].to_string())
-
-# COMMAND ----------
-
 print(f"\nWriting LGU accessibility results to: {LGU_ACCESSIBILITY_TABLE}")
 
 # Enforce float type for all LGU columns (Spark requires uniform types)
@@ -1021,15 +1074,6 @@ print(
 )
 display(result_sdf)
 
-
-# COMMAND ----------
-
-display(result_sdf)
-
-# COMMAND ----------
-
-  front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
-  result_sdf = result_sdf.select(front_cols + lgu_col_names)
 
 # COMMAND ----------
 

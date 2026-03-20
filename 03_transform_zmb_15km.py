@@ -36,8 +36,8 @@ COUNTRY_ISO3 = "ZMB"
 POPULATION_YEAR = 2025
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
-DISTANCE_METERS = 10000
-dis_km = int(DISTANCE_METERS / 1000)
+DISTANCE_METERS = 15000
+dis_km = str(DISTANCE_METERS / 1000)
 distance_name = f"{dis_km}km"
 MAPBOX_ACCESS_TOKEN = ""
 MAPBOX_MODE = "driving"
@@ -68,14 +68,6 @@ FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.low
 FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
 POTENTIAL_LOCATIONS_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{COUNTRY_ISO3.lower()}_{distance_name}"
 POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
-
-# COMMAND ----------
-
-print("Population AOI Table:", POPULATION_AOI_TABLE)
-print("Facilities H3 Table:" , FACILITIES_H3_TABLE)
-print("Facilities Coverage Table:", FACILITIES_COVERAGE_TABLE)
-print("Potential Locations Table:", POTENTIAL_LOCATIONS_TABLE)
-print("Potential Coverage Table:", POTENTIAL_COVERAGE_TABLE)
 
 # COMMAND ----------
 
@@ -956,50 +948,6 @@ print("=" * 60)
 
 # COMMAND ----------
 
-# cell 1b — Spatial join: assign 'district' to each new facility in result_pdf
-
-from shapely import wkt as shapely_wkt
-from shapely.geometry import Point
-
-# ── Load district boundaries ──────────────────────────────────────────────────
-print("Loading district boundaries ...")
-boundaries_sdf = spark.table("prd_mega.sgpbpi163.gadm_boundaries_lgu_zambia")
-boundaries_pdf = boundaries_sdf.select("LGU", "geometry_wkt").toPandas()
-
-# Parse WKT strings into Shapely geometries (skip any nulls/malformed rows)
-boundaries_pdf["geometry"] = boundaries_pdf["geometry_wkt"].apply(
-    lambda w: shapely_wkt.loads(w) if isinstance(w, str) and w.strip() else None
-)
-boundaries_pdf = boundaries_pdf.dropna(subset=["geometry"]).reset_index(drop=True)
-
-print(f"  Loaded {len(boundaries_pdf)} district polygons.")
-
-# ── Point-in-polygon lookup ───────────────────────────────────────────────────
-def find_district(lat, lon):
-    """Return the LGU name whose polygon contains (lon, lat), else None."""
-    if lat is None or lon is None or pd.isna(lat) or pd.isna(lon):
-        return None
-    pt = Point(lon, lat)          # Shapely Point is (x=lon, y=lat)
-    for _, row in boundaries_pdf.iterrows():
-        if row["geometry"].contains(pt):
-            return row["LGU"]
-    return None                   # point falls outside all boundaries
-
-print("Assigning district to each facility step ...")
-result_pdf["district"] = result_pdf.apply(
-    lambda r: find_district(r["lat"], r["lon"]), axis=1
-)
-
-# Quick sanity check
-unmatched = result_pdf["district"].isna().sum()
-if unmatched:
-    print(f"  ⚠️  {unmatched} row(s) could not be matched to a district "
-          f"(likely existing / null facilities).")
-print("  ✅ 'district' column added.")
-print(result_pdf[["total_facilities", "new_facility", "lat", "lon", "district"]].to_string())
-
-# COMMAND ----------
-
 print(f"\nWriting LGU accessibility results to: {LGU_ACCESSIBILITY_TABLE}")
 
 # Enforce float type for all LGU columns (Spark requires uniform types)
@@ -1021,15 +969,6 @@ print(
 )
 display(result_sdf)
 
-
-# COMMAND ----------
-
-display(result_sdf)
-
-# COMMAND ----------
-
-  front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
-  result_sdf = result_sdf.select(front_cols + lgu_col_names)
 
 # COMMAND ----------
 
