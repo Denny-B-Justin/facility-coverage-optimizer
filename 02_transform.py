@@ -16,12 +16,13 @@ import plotly.graph_objects as go
 from shapely.geometry import Point
 from shapely.wkt import loads as wkt_loads
 from sklearn.cluster import KMeans
+from shapely import wkt as shapely_wkt
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import StringType, StructType, StructField
 from pyspark.sql.functions import udf
 
-
+import re
 print(f"Spark version: {spark.version}")
 
 # COMMAND ----------
@@ -36,9 +37,11 @@ COUNTRY_ISO3 = "ZMB"
 POPULATION_YEAR = 2025
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
+
 DISTANCE_METERS = 10000
 dis_km = int(DISTANCE_METERS / 1000)
 distance_name = f"{dis_km}km"
+
 MAPBOX_ACCESS_TOKEN = ""
 MAPBOX_MODE = "driving"
 
@@ -768,8 +771,6 @@ LGU_ACCESSIBILITY_TABLE = (
 
 # COMMAND ----------
 
-import re 
-
 def sanitize_col_name(name: str) -> str:
     """
     Converts an LGU display name into a Delta-safe column name.
@@ -957,9 +958,6 @@ print("=" * 60)
 # COMMAND ----------
 
 # cell 1b — Spatial join: assign 'district' to each new facility in result_pdf
-
-from shapely import wkt as shapely_wkt
-from shapely.geometry import Point
 
 # ── Load district boundaries ──────────────────────────────────────────────────
 print("Loading district boundaries ...")
