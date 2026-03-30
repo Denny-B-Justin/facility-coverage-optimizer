@@ -31,7 +31,6 @@ print(f"Spark version: {spark.version}")
 
 UC_CATALOG = "prd_mega"
 UC_SCHEMA = "sgpbpi163"
-VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
 
 COUNTRY_ISO3 = "ZMB"
 POPULATION_YEAR = 2025
