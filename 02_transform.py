@@ -37,7 +37,7 @@ POPULATION_YEAR = 2025
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
 
-DISTANCE_METERS = 10000
+DISTANCE_METERS = 5000
 dis_km = int(DISTANCE_METERS / 1000)
 distance_name = f"{dis_km}km"
 
@@ -1025,8 +1025,8 @@ display(result_sdf)
 
 # COMMAND ----------
 
-  front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
-  result_sdf = result_sdf.select(front_cols + lgu_col_names)
+front_cols = ["total_facilities", "new_facility", "district", "lat", "lon", "h3_index", "total_population_access_pct"]
+result_sdf = result_sdf.select(front_cols + lgu_col_names)
 
 # COMMAND ----------
 

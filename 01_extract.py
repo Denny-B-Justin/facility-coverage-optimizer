@@ -105,7 +105,7 @@ def gdf_to_uc_table(gdf: gpd.GeoDataFrame, table_name: str, mode: str = "overwri
             seen.add(col_lower)
     pdf.columns = new_cols
     pdf = pdf.reset_index(drop=True)
-    sdf = spark.createDataFrame(pdf.to_dict('records')) 
+    sdf = spark.createDataFrame(pdf) 
     sdf.write.mode(mode).saveAsTable(table_name)
     print(f"Table saved: {table_name} ({len(gdf)} rows)")
 
@@ -407,13 +407,13 @@ extract_population_chunked(
 
 # Extract health facilities
 # Option A: Query OSM (uncomment to use)
-# facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm"
-# extract_health_facilities_osm(ISO_2, facilities_table)
+facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm"
+extract_health_facilities_osm(ISO_2, facilities_table)
 
 # Option B: Use existing curated file
-INPUT_FACILITIES_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
-facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}"
-extract_existing_facilities(INPUT_FACILITIES_PATH, facilities_table)
+# INPUT_FACILITIES_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
+# facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}"
+# extract_existing_facilities(INPUT_FACILITIES_PATH, facilities_table)
 
 # COMMAND ----------
 
@@ -426,74 +426,6 @@ print(f"GADM boundaries:    {gadm_table}")
 print(f"Population raster:  {raster_path}")
 print(f"Population table:   {population_table}")
 print(f"Health facilities:  {facilities_table}")
-print("=" * 60)
-
-# COMMAND ----------
-
-def extract_gadm_boundaries_lgu(
-    country: str,
-    table_name: str,
-    force: bool = False,
-) -> gpd.GeoDataFrame:
-    """
-    Downloads GADM level-2 (district/LGU) boundaries for the given country
-    and saves to UC table with ONLY two columns:
-        - LGU           : district name (e.g. "Lusaka", "Luangwa")
-        - geometry_wkt  : polygon geometry in WKT (EPSG:4326)
-
-    Mirrors extract_gadm_boundaries but always uses ad_level=2 and
-    normalises the output to the mandatory (LGU, geometry_wkt) schema.
-
-    Args:
-        country    : country name recognised by GADMDownloader (e.g. "Zambia")
-        table_name : fully-qualified UC table  (catalog.schema.table)
-        force      : overwrite even if the table already exists
-
-    Returns:
-        GeoDataFrame with columns [LGU, geometry]
-    """
-    # if not force and table_exists(table_name):
-    #     print(f"LGU boundaries already exist, loading: {table_name}")
-    #     return uc_table_to_gdf(table_name)
-
-    downloader = GADMDownloader(version="4.0")
-    df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=2)
-    print(df_shp)
-    # Keep only the district name and geometry; rename to mandatory columns
-    lgu_gdf = (
-        df_shp[["NAME_2", "geometry"]]
-        .copy()
-        .rename(columns={"NAME_2": "LGU"})
-        .reset_index(drop=True)
-    )
-
-    print(
-        f"Downloaded {len(lgu_gdf)} LGU boundaries for {country} "
-        "| Uploading to UC Table"
-    )
-    # gdf_to_uc_table writes all non-geometry columns + geometry_wkt
-    # → the table will have exactly: LGU, geometry_wkt
-    # gdf_to_uc_table(lgu_gdf, table_name)
-    return lgu_gdf
-
-lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_zambia"
-lgu_gdf = extract_gadm_boundaries_lgu(
-    country=COUNTRY,
-    table_name=lgu_table,
-)
-print(f"LGU count: {len(lgu_gdf)}")
-print(lgu_gdf[["LGU"]].head(5))
-
-# COMMAND ----------
-
-print("\n" + "=" * 60)
-print("EXTRACTION COMPLETE")
-print("=" * 60)
-print(f"GADM country boundary: {gadm_table}")
-print(f"GADM LGU boundaries:   {lgu_table}  ({len(lgu_gdf)} LGUs)")
-print(f"Population raster:     {raster_path}")
-print(f"Population table:      {population_table}")
-print(f"Health facilities:     {facilities_table}")
 print("=" * 60)
 
 # COMMAND ----------
@@ -590,7 +522,7 @@ def extract_gadm_boundaries_lgu(
 # ── Execution block — append after health facilities cell ──
 # ============================================================
 
-lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_zambia"
+lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
 lgu_gdf = extract_gadm_boundaries_lgu(
     country_iso3=ISO_3,          # "ZMB"  (already resolved above)
     table_name=lgu_table,
@@ -599,3 +531,15 @@ lgu_gdf = extract_gadm_boundaries_lgu(
 )
 print(f"LGU count : {len(lgu_gdf)}")
 print(lgu_gdf[["LGU"]].to_string(max_rows=10))
+
+# COMMAND ----------
+
+print("\n" + "=" * 60)
+print("EXTRACTION COMPLETE")
+print("=" * 60)
+print(f"GADM country boundary: {gadm_table}")
+print(f"GADM LGU boundaries:   {lgu_table}  ({len(lgu_gdf)} LGUs)")
+print(f"Population raster:     {raster_path}")
+print(f"Population table:      {population_table}")
+print(f"Health facilities:     {facilities_table}")
+print("=" * 60)
