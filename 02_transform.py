@@ -961,7 +961,7 @@ print("=" * 60)
 
 # ── Load district boundaries ──────────────────────────────────────────────────
 print("Loading district boundaries ...")
-boundaries_sdf = spark.table("prd_mega.sgpbpi163.gadm_boundaries_lgu_zambia")
+boundaries_sdf = spark.table(LGU_TABLE)
 boundaries_pdf = boundaries_sdf.select("LGU", "geometry_wkt").toPandas()
 
 # Parse WKT strings into Shapely geometries (skip any nulls/malformed rows)
