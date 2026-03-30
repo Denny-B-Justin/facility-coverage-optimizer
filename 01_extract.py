@@ -156,7 +156,7 @@ def extract_gadm_boundaries(
     else:
         df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=0)
         selected_gadm = df_shp
-    print("Downloaded the boundries | Uploading to UC Table")
+    print("Downloaded the boundaries | Uploading to UC Table")
     gdf_to_uc_table(selected_gadm, table_name)
     return selected_gadm
 
