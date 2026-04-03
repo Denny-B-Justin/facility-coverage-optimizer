@@ -30,7 +30,7 @@ import zipfile
 # CONFIGURATION
 
 COUNTRY = "Zambia"
-ADM_LEVEL1 = 'Central'
+ADM_LEVEL1 = "Eastern"
 ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
@@ -139,10 +139,23 @@ print(f"Country: {COUNTRY} | ISO-2: {ISO_2} | ISO-3: {ISO_3}")
 # COMMAND ----------
 
 
-gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}"
-population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
-facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm_{ADM_LEVEL1.lower()}"
-lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}_{ADM_LEVEL1.lower()}"
+if ADM_LEVEL1 != None:
+    gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}_{ADM_LEVEL1.lower()}_province"
+    population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}_province"
+    facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm_{ADM_LEVEL1.lower()}_province"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}_{ADM_LEVEL1.lower()}_province"
+else:
+    gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}_{ADM_LEVEL1.lower()}"
+    population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}"
+    facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm_{ADM_LEVEL1.lower()}"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}_{ADM_LEVEL1.lower()}"
+
+# COMMAND ----------
+
+print(f"GADM Table: {gadm_table}")
+print(f"Population Table: {population_table}")
+print(f"Facilities Table: {facilities_table}")
+print(f"LGU Table: {lgu_table}")
 
 # COMMAND ----------
 
