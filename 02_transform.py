@@ -1,4 +1,8 @@
 # Databricks notebook source
+# /// script
+# [tool.databricks.environment]
+# environment_version = "4"
+# ///
 # MAGIC %pip install geopandas shapely rasterio pycountry folium plotly scikit-learn pyproj
 
 # COMMAND ----------
@@ -30,7 +34,7 @@ print(f"Spark version: {spark.version}")
 # CONFIGURATION
 COUNTRY = "Zambia"
 COUNTRY_ISO3 = "ZMB"
-ADM_LEVEL1 = "Central"
+ADM_LEVEL1 = "Northern"
 ADM_LEVEL2 = None
 
 POPULATION_YEAR = 2025
@@ -41,7 +45,7 @@ UC_SCHEMA = "sgpbpi163"
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
 
-DISTANCE_METERS = 10000
+DISTANCE_METERS = 5000
 dis_km = int(DISTANCE_METERS / 1000)
 distance_name = f"{dis_km}km"
 
@@ -786,9 +790,6 @@ new_fac_pdf
 # COMMAND ----------
 
 TARGET_ACCESS_RATE_PCT = 90.0
-
-
-
 
 # COMMAND ----------
 
