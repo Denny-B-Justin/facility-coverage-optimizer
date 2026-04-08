@@ -23,19 +23,21 @@ from rasterio.windows import Window
 from gadm import GADMDownloader
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, DoubleType, StringType
+import zipfile
 
 # COMMAND ----------
 
 # CONFIGURATION
 
 COUNTRY = "Zambia"
-ADM_LEVEL1 = None
+ADM_LEVEL1 = "North-Western"
 ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
 UC_CATALOG = "prd_mega"
-UC_SCHEMA = "pim"
-VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sboost4/vboost4"
+UC_SCHEMA = "sgpbpi163"
+VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
+
 
 # COMMAND ----------
 
@@ -103,8 +105,8 @@ def gdf_to_uc_table(gdf: gpd.GeoDataFrame, table_name: str, mode: str = "overwri
             new_cols.append(col)
             seen.add(col_lower)
     pdf.columns = new_cols
-
-    sdf = spark.createDataFrame(pdf)
+    pdf = pdf.reset_index(drop=True)
+    sdf = spark.createDataFrame(pdf.to_dict('records')) 
     sdf.write.mode(mode).saveAsTable(table_name)
     print(f"Table saved: {table_name} ({len(gdf)} rows)")
 
@@ -124,6 +126,38 @@ def pdf_to_uc_table(pdf: pd.DataFrame, table_name: str, mode: str = "overwrite")
     sdf = spark.createDataFrame(pdf)
     sdf.write.mode(mode).saveAsTable(table_name)
     print(f"Table saved: {table_name} ({len(pdf)} rows)")
+
+# COMMAND ----------
+
+# RUN EXTRACTION PIPELINE
+
+iso_codes = get_country_codes(COUNTRY)
+ISO_2 = iso_codes["alpha_2"]
+ISO_3 = iso_codes["alpha_3"]
+print(f"Country: {COUNTRY} | ISO-2: {ISO_2} | ISO-3: {ISO_3}")
+
+# COMMAND ----------
+
+
+if ADM_LEVEL1 != None:
+    gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}_{ADM_LEVEL1.lower()}_province"
+    population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}_province"
+    facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm_{ADM_LEVEL1.lower()}_province"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}_{ADM_LEVEL1.lower()}_province"
+else:
+    gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}"
+    population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
+    facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
+
+# COMMAND ----------
+
+
+
+print(f"GADM Table: {gadm_table}")
+print(f"Population Table: {population_table}")
+print(f"Facilities Table: {facilities_table}")
+print(f"LGU Table: {lgu_table}")
 
 # COMMAND ----------
 
@@ -156,8 +190,12 @@ def extract_gadm_boundaries(
         df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=0)
         selected_gadm = df_shp
 
+    print("Downloaded the boundaries | Uploading to UC Table")
     gdf_to_uc_table(selected_gadm, table_name)
     return selected_gadm
+
+
+
 
 # COMMAND ----------
 
@@ -290,7 +328,7 @@ def extract_population_chunked(
 
 # EXTRACT: HEALTH FACILITIES FROM OSM
 
-def extract_health_facilities_osm(iso_2: str, table_name: str, force: bool = False) -> pd.DataFrame:
+def extract_health_facilities_osm(iso_2: str, table_name: str, selected_gadm: gpd.GeoDataFrame, adm_level_name: str = "AOI", force: bool = False) -> pd.DataFrame:
     """
     Queries OSM Overpass API for hospitals and clinics.
     Saves to UC table and returns DataFrame.
@@ -337,9 +375,35 @@ def extract_health_facilities_osm(iso_2: str, table_name: str, force: bool = Fal
         .drop_duplicates(subset="osm_id")
         .reset_index(drop=True)
     )
+    gdf_health = gpd.GeoDataFrame(
+        df_health,
+        geometry=gpd.points_from_xy(df_health.lon, df_health.lat),
+        crs="EPSG:4326"
+    )
 
-    pdf_to_uc_table(df_health, table_name)
-    return df_health
+    # Reproject and spatial join
+    gdf_health = gdf_health.to_crs(selected_gadm.crs)
+    selected_health = gpd.sjoin(gdf_health, selected_gadm, predicate='within')
+    selected_health = selected_health.reset_index().reset_index()
+    selected_health['ID'] = selected_health['level_0'].astype(str)+'_current'
+
+    print(f"Number of hospitals and clinics extracted: {len(gdf_health)}")
+    print(f"Number of facilities in AOI ({adm_level_name}): {len(selected_health)}")
+    selected_health = selected_health.loc[:, ~selected_health.columns.duplicated()]
+
+    # ── Convert geometry → WKT string before writing to Spark ──────────────
+    selected_health_pdf = selected_health.copy()
+    selected_health_pdf["geometry_wkt"] = selected_health_pdf["geometry"].apply(
+        lambda geom: geom.wkt if geom is not None else None
+    )
+    selected_health_pdf = selected_health_pdf.drop(columns=["geometry"])
+    print(selected_health_pdf.columns)
+    selected_health_pdf = selected_health_pdf.rename(columns={
+        "id": "osm_id",  # your constructed id (level_0 + '_current')
+    })
+
+    pdf_to_uc_table(selected_health_pdf, table_name)
+    return selected_health_pdf
 
 # COMMAND ----------
 
@@ -360,22 +424,13 @@ def extract_existing_facilities(input_path: str, table_name: str, force: bool = 
 
 # COMMAND ----------
 
-# RUN EXTRACTION PIPELINE
-
-iso_codes = get_country_codes(COUNTRY)
-ISO_2 = iso_codes["alpha_2"]
-ISO_3 = iso_codes["alpha_3"]
-print(f"Country: {COUNTRY} | ISO-2: {ISO_2} | ISO-3: {ISO_3}")
-
-# COMMAND ----------
-
 # Extract GADM boundaries
-gadm_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{ISO_3.lower()}"
 selected_gadm_gdf = extract_gadm_boundaries(
     country=COUNTRY,
     adm_level1=ADM_LEVEL1,
     adm_level2=ADM_LEVEL2,
     table_name=gadm_table,
+    force=True,
 )
 
 # COMMAND ----------
@@ -393,7 +448,6 @@ extract_worldpop_raster(
 
 # Convert raster to UC table using chunked processing
 # Long-running – takes 7 minutes to process
-population_table = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
 extract_population_chunked(
     raster_path=raster_path,
     table_name=population_table,
@@ -404,13 +458,12 @@ extract_population_chunked(
 
 # Extract health facilities
 # Option A: Query OSM (uncomment to use)
-# facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}_osm"
-# extract_health_facilities_osm(ISO_2, facilities_table)
+extract_health_facilities_osm(iso_2= ISO_2, table_name= facilities_table, selected_gadm= selected_gadm_gdf, adm_level_name= ADM_LEVEL1, force=True)
 
 # Option B: Use existing curated file
-INPUT_FACILITIES_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
-facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}"
-extract_existing_facilities(INPUT_FACILITIES_PATH, facilities_table)
+# INPUT_FACILITIES_PATH = f"{VOLUME_DIR}/selected_hosp_input_data.geojson"
+# facilities_table = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{ISO_3.lower()}"
+# extract_existing_facilities(INPUT_FACILITIES_PATH, facilities_table)
 
 # COMMAND ----------
 
@@ -423,4 +476,119 @@ print(f"GADM boundaries:    {gadm_table}")
 print(f"Population raster:  {raster_path}")
 print(f"Population table:   {population_table}")
 print(f"Health facilities:  {facilities_table}")
+print("=" * 60)
+
+# COMMAND ----------
+
+def extract_gadm_boundaries_lgu(
+    country_iso3: str,
+    table_name: str,
+    gadm_version: str = "4.1",
+    ad_level: int = 2,
+    force: bool = False,
+) -> gpd.GeoDataFrame:
+    """
+    Downloads GADM boundaries at the specified admin level directly from the
+    UCDAVIS geodata server (supports GADM 4.1 which has all 116 Zambia districts)
+    and saves to UC table with ONLY two columns:
+        - LGU           : district name (NAME_2 for ad_level=2)
+        - geometry_wkt  : polygon geometry in WKT (EPSG:4326)
+
+    Args:
+        country_iso3 : ISO-3 country code  (e.g. "ZMB")
+        table_name   : fully-qualified UC table  (catalog.schema.table)
+        gadm_version : GADM dataset version, default "4.1"
+        ad_level     : admin level to extract  (2 = district/LGU)
+        force        : overwrite even if the table already exists
+
+    Returns:
+        GeoDataFrame with columns [LGU, geometry]
+    """
+    if not force and table_exists(table_name):
+        print(f"LGU boundaries already exist, loading: {table_name}")
+        return uc_table_to_gdf(table_name)
+
+    # ── Build the download URL ────────────────────────────────────────────
+    # Example: https://geodata.ucdavis.edu/gadm/gadm4.1/shp/gadm41_ZMB_shp.zip
+    version_nodot = gadm_version.replace(".", "")
+    zip_url = (
+        f"https://geodata.ucdavis.edu/gadm/gadm{gadm_version}/shp/"
+        f"gadm{version_nodot}_{country_iso3}_shp.zip"
+    )
+    print(f"Downloading GADM {gadm_version} shapefile: {zip_url}")
+
+    # ── Download zip to a temp file on the Volume ─────────────────────────
+    zip_path = os.path.join(VOLUME_DIR, f"gadm{version_nodot}_{country_iso3}_shp.zip")
+
+    if not file_exists(zip_path):
+        urllib.request.urlretrieve(zip_url, zip_path)
+        print(f"  Downloaded: {zip_path}")
+    else:
+        print(f"  Zip already cached: {zip_path}")
+
+    # ── Unzip and read the level-specific shapefile ───────────────────────
+    # The zip contains files named e.g. gadm41_ZMB_0.shp, gadm41_ZMB_1.shp, gadm41_ZMB_2.shp
+    extract_dir = os.path.join(VOLUME_DIR, f"gadm{version_nodot}_{country_iso3}_shp")
+
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        zf.extractall(extract_dir)
+        print(f"  Extracted to: {extract_dir}")
+
+    shp_filename = f"gadm{version_nodot}_{country_iso3}_{ad_level}.shp"
+    shp_path = os.path.join(extract_dir, shp_filename)
+
+    lgu_raw_gdf = gpd.read_file(shp_path)
+    print(f"  Shapefile loaded: {len(lgu_raw_gdf)} features (GADM {gadm_version}, level {ad_level})")
+
+    # ── Normalise to mandatory schema: LGU + geometry ─────────────────────
+    name_col = f"NAME_{ad_level}"          # e.g. NAME_2 for districts
+    if name_col not in lgu_raw_gdf.columns:
+        raise ValueError(
+            f"Expected column '{name_col}' not found. "
+            f"Available: {list(lgu_raw_gdf.columns)}"
+        )
+
+    lgu_gdf = (
+        lgu_raw_gdf[[name_col, "geometry"]]
+        .copy()
+        .rename(columns={name_col: "LGU"})
+        .reset_index(drop=True)
+    )
+
+    # Ensure WGS-84
+    if lgu_gdf.crs is None or lgu_gdf.crs.to_epsg() != 4326:
+        lgu_gdf = lgu_gdf.to_crs(epsg=4326)
+
+    print(
+        f"Normalised to {len(lgu_gdf)} LGU boundaries "
+        f"| Uploading to UC table: {table_name}"
+    )
+    # gdf_to_uc_table produces exactly: LGU, geometry_wkt
+    gdf_to_uc_table(lgu_gdf, table_name)
+    return lgu_gdf
+
+
+# ============================================================
+# ── Execution block — append after health facilities cell ──
+# ============================================================
+
+lgu_gdf = extract_gadm_boundaries_lgu(
+    country_iso3=ISO_3,          # "ZMB"  (already resolved above)
+    table_name=lgu_table,
+    gadm_version="4.1",          # <-- GADM 4.1 = 116 districts
+    ad_level=2,
+)
+print(f"LGU count : {len(lgu_gdf)}")
+print(lgu_gdf[["LGU"]].to_string(max_rows=10))
+
+# COMMAND ----------
+
+print("\n" + "=" * 60)
+print("EXTRACTION COMPLETE")
+print("=" * 60)
+print(f"GADM country boundary: {gadm_table}")
+print(f"GADM LGU boundaries:   {lgu_table}  ({len(lgu_gdf)} LGUs)")
+print(f"Population raster:     {raster_path}")
+print(f"Population table:      {population_table}")
+print(f"Health facilities:     {facilities_table}")
 print("=" * 60)
