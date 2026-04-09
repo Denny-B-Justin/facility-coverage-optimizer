@@ -30,7 +30,6 @@ import zipfile
 # CONFIGURATION
 
 COUNTRY = "Zambia"
-ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
 UC_CATALOG = "prd_mega"
@@ -193,7 +192,6 @@ print(f"Will process {len(provinces_to_process)} region(s): {provinces_to_proces
 def extract_gadm_boundaries(
     country: str,
     adm_level1: str | None,
-    adm_level2: str | None,
     table_name: str,
     force: bool = False,
 ) -> gpd.GeoDataFrame:
@@ -210,9 +208,6 @@ def extract_gadm_boundaries(
     if adm_level1 is not None:
         df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=1)
         selected_gadm = df_shp[df_shp["NAME_1"] == adm_level1]
-    elif adm_level2 is not None:
-        df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=2)
-        selected_gadm = df_shp[df_shp["NAME_2"] == adm_level2]
     else:
         df_shp = downloader.get_shape_data_by_country_name(country_name=country, ad_level=0)
         selected_gadm = df_shp
