@@ -23,8 +23,23 @@ dbutils.library.restartPython()
 # COMMAND ----------
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import pandas as pd
 import geopandas as gpd
+
+# Session with exponential backoff for rate limiting
+def _get_retry_session():
+    session = requests.Session()
+    retry = Retry(
+        total=5,
+        backoff_factor=2,  # 2, 4, 8, 16, 32 seconds
+        status_forcelist=[429, 500, 502, 503, 504],
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 # COMMAND ----------
 
@@ -95,7 +110,8 @@ def extract_health_facilities_osm(
         );
         out center;
         """
-        response = requests.get(
+        session = _get_retry_session()
+        response = session.get(
             "http://overpass-api.de/api/interpreter",
             params={"data": query},
             timeout=120,
