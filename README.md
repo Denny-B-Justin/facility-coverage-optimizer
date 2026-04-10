@@ -4,56 +4,144 @@ Optimizes placement of new health facilities using Maximum Covering Location Pro
 
 See [docs/optimization_approach.md](docs/optimization_approach.md) for details on the algorithm choice.
 
-## Scripts
+## Project Structure
 
-| Script | Purpose |
-|--------|---------|
-| `01_extract.py` | Downloads and prepares source data (World Bank boundaries, WorldPop raster, health facilities) |
-| `02_transform.py` | Computes coverage, runs optimization, visualizes results |
+```
+├── shared/
+│   ├── settings.py    # Shared constants (catalog, schema, country)
+│   ├── core.py        # Pure functions (no Spark dependencies)
+│   └── env.py         # Environment detection & storage backends
+├── extract/
+│   ├── config.py      # Extract pipeline configuration
+│   ├── 01a_download_worldpop.py
+│   ├── 01b_download_wb.py
+│   ├── 02_population.py
+│   ├── 03_boundaries.py
+│   └── 04_facilities.py
+├── transform/
+│   ├── config.py      # Transform pipeline configuration
+│   ├── 01_prepare.py
+│   ├── 02_coverage.py
+│   ├── 03_optimize.py
+│   └── 04_lgu_metrics.py
+└── tests/
+    ├── test_core.py        # Unit tests for pure functions
+    ├── test_env.py         # Tests for environment/storage
+    └── test_integration.py # PySpark integration tests
+```
+
+## Setup
+
+### Local Development (uv)
+
+```bash
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Install dependencies (creates venv automatically)
+uv sync --extra dev --extra spark
+```
+
+### Databricks
+
+Upload the `shared/`, `extract/`, and `transform/` directories to your Databricks workspace. Run notebooks in order within each pipeline.
 
 ## Configuration
 
-Edit the configuration section at the top of each script:
+### Shared Settings (`shared/settings.py`)
 
-**01_extract.py**
 ```python
-COUNTRY = "Zambia"        # Country name
-ADM_LEVEL1_LIST = []      # Province filter ([] = all provinces, None = whole country)
+UC_CATALOG = "prd_mega"
+UC_SCHEMA = os.getenv("UC_SCHEMA", "sgpbpi163")  # Override for testing
+COUNTRY = "Zambia"
+ISO_2 = "ZM"
+ISO_3 = "ZMB"
 POPULATION_YEAR = 2025
-FACILITIES_SOURCE = "osm" # "osm" or "file" (curated GeoJSON)
 ```
 
-**02_transform.py**
+### Extract Pipeline (`extract/config.py`)
+
 ```python
-DISTANCE_METERS = 10000       # Catchment radius
-TARGET_NEW_FACILITIES = 7     # Number of new facilities to place
-POTENTIAL_TYPE = "grid"       # "grid" or "kmeans"
-GRID_SPACING = 0.03           # Grid density (degrees)
-FORCE_RECOMPUTE = False       # Set True to invalidate cache
+ADM_LEVEL1_LIST = []      # [] = all provinces, or ["Northern", "Southern"]
+FACILITIES_SOURCE = "osm" # "osm" or "file"
+FORCE_RECOMPUTE = False
+```
+
+### Transform Pipeline (`transform/config.py`)
+
+```python
+ADM_LEVEL1_LIST = ["Northern"]  # Provinces to process
+DISTANCES_METERS = [5000, 10000] # Catchment radii to analyze
+TARGET_NEW_FACILITIES = 50
+POTENTIAL_TYPE = "grid"   # "grid" or "kmeans"
+GRID_SPACING = 0.03
+FORCE_RECOMPUTE = False
 ```
 
 ## Usage
 
-Run in order on Databricks:
-1. `01_extract.py` - extracts data to Unity Catalog tables
-2. `02_transform.py` - runs optimization and displays results
+### Databricks
 
-## Caching
+Run tasks in order:
 
-Expensive operations are cached to UC tables. Subsequent runs load from cache automatically.
+**Extract Pipeline:**
+1. `extract/01a_download_worldpop.py` - Download WorldPop raster
+2. `extract/01b_download_wb.py` - Download World Bank boundaries
+3. `extract/02_population.py` - Extract population to UC table
+4. `extract/03_boundaries.py` - Extract province/LGU boundaries
+5. `extract/04_facilities.py` - Extract health facilities
 
-| Cached Table | Contents |
-|--------------|----------|
-| `population_aoi_*` | Population filtered to AOI |
-| `facilities_h3_*` | Existing facilities with coverage |
-| `facilities_coverage_*` | Facility-population coverage pairs |
-| `potential_locations_*` | Candidate locations with coverage |
-| `potential_coverage_*` | Candidate-population coverage pairs |
+**Transform Pipeline:**
+1. `transform/01_prepare.py` - Prepare data, generate potential locations
+2. `transform/02_coverage.py` - Compute H3-based coverage
+3. `transform/03_optimize.py` - Run greedy MCLP optimization
+4. `transform/04_lgu_metrics.py` - Compute per-LGU accessibility metrics
 
-Set `FORCE_RECOMPUTE = True` to recompute all cached results.
+### Testing with a Different Schema
+
+To test without affecting production tables, set `UC_SCHEMA` environment variable:
+
+**Databricks Job/Workflow:**
+Task settings → Environment variables → Add `UC_SCHEMA=sgpbpi163_dev`
+
+**Local:**
+```bash
+export UC_SCHEMA=sgpbpi163_dev
+```
+
+## Cached Tables
+
+Expensive operations are cached to UC tables. Set `FORCE_RECOMPUTE = True` to regenerate.
+
+| Table Pattern | Contents |
+|---------------|----------|
+| `population_{iso3}_{year}` | Country-level population |
+| `wb_boundaries_{iso3}_*` | Province boundaries |
+| `health_facilities_{iso3}_*` | Health facilities |
+| `*_population_aoi_*` | Population filtered to AOI |
+| `*_facilities_h3_*` | Facilities with H3 index |
+| `*_coverage_*` | Coverage pairs |
+| `lgu_accessibility_results_*` | Final optimization results |
 
 ## Output
 
-- Coverage statistics (current vs. maximum possible)
+- Per-LGU accessibility metrics at each optimization step
+- Coverage statistics (baseline vs. optimized)
 - Pareto frontier chart (facilities vs. coverage %)
-- Interactive maps showing existing facilities, new placements, and population coverage
+- Results table consumed by [pimpam-dash](../pimpam-dash) visualization app
+
+## Running Tests
+
+```bash
+# All tests
+uv run pytest tests/ -v
+
+# Unit tests only (fast, no Spark)
+uv run pytest tests/test_core.py tests/test_env.py -v
+
+# Integration tests (requires PySpark)
+uv run pytest tests/test_integration.py -v
+
+# With coverage
+uv run pytest tests/ --cov=shared --cov=extract --cov=transform
+```
