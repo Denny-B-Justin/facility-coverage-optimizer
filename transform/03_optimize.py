@@ -74,7 +74,7 @@ for adm_level1, distance_meters in transform_combinations:
     k_rings = get_k_rings(distance_meters, H3_RESOLUTION)
 
     # Load prepared data
-    print(f"\nLoading data...")
+    print("\nLoading data...")
     population_aoi_sdf = spark.table(tables["population_aoi"]).cache()
     selected_hosp_sdf = spark.table(tables["facilities_h3"]).cache()
     potential_locations_sdf = spark.table(tables["potential_locations"]).cache()

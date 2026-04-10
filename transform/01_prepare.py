@@ -251,7 +251,7 @@ for adm_level1, distance_meters in transform_combinations:
     aoi_union_geom = selected_boundary_gdf.geometry.unary_union
 
     # Load and filter population to AOI
-    print(f"\nFiltering population to AOI...")
+    print("\nFiltering population to AOI...")
     population_aoi_sdf = load_population_aoi(
         tables["population"], tables["population_aoi"],
         boundary_wkt, H3_RESOLUTION, FORCE_RECOMPUTE

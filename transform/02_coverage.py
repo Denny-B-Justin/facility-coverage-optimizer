@@ -107,7 +107,7 @@ def compute_coverage_h3(
     Coverage table is not cached - it's large and only used once for aggregation.
     """
     if not force and table_exists(facilities_output_table) and table_exists(coverage_output_table):
-        print(f"  Loading from UC (lazy)...")
+        print("  Loading from UC (lazy)...")
         fac_sdf = spark.table(facilities_output_table).cache()
         cov_sdf = spark.table(coverage_output_table)  # No cache - too large
         print(f"    Facilities: {fac_sdf.count()}")
@@ -151,7 +151,7 @@ for adm_level1, distance_meters in transform_combinations:
     print(f"  K_RINGS = {k_rings} (~{k_rings * H3_EDGE_LENGTH_M[H3_RESOLUTION]}m)")
 
     # Load prepared data
-    print(f"\nLoading prepared data...")
+    print("\nLoading prepared data...")
     population_aoi_sdf = spark.table(tables["population_aoi"]).cache()
     selected_hosp_sdf = spark.table(tables["facilities_h3"]).cache()
     potential_locations_sdf = spark.table(tables["potential_locations"]).cache()
@@ -161,21 +161,21 @@ for adm_level1, distance_meters in transform_combinations:
     print(f"  Potential locations: {potential_locations_sdf.count()}")
 
     # Compute coverage for existing facilities
-    print(f"\nComputing coverage for existing facilities...")
+    print("\nComputing coverage for existing facilities...")
     selected_hosp_sdf, hosp_coverage_sdf = compute_coverage_h3(
         selected_hosp_sdf, population_aoi_sdf, H3_RESOLUTION, k_rings,
         tables["facilities_h3"], tables["facilities_coverage"], FORCE_RECOMPUTE
     )
 
     # Compute coverage for potential locations
-    print(f"\nComputing coverage for potential locations...")
+    print("\nComputing coverage for potential locations...")
     potential_locations_sdf, potential_coverage_sdf = compute_coverage_h3(
         potential_locations_sdf, population_aoi_sdf, H3_RESOLUTION, k_rings,
         tables["potential_locations"], tables["potential_coverage"], FORCE_RECOMPUTE
     )
 
     # Analyze current coverage
-    print(f"\nAnalyzing current coverage...")
+    print("\nAnalyzing current coverage...")
     total_population = population_aoi_sdf.agg(F.sum("population")).collect()[0][0]
 
     existing_covered_ids_sdf = hosp_coverage_sdf.select("pop_ID").distinct()
