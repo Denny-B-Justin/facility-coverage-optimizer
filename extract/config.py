@@ -55,6 +55,12 @@ WB_ADMIN0_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%
 WB_ADMIN1_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%201.geojson"
 WB_ADMIN2_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%20-%20Admin%202.geojson"
 
+# Corrections for known typos in WB boundaries data
+# See: https://github.com/worldbank/WB_GAD/issues/25
+WB_NAME_CORRECTIONS = {
+    "Muchiga": "Muchinga",  # Zambia province typo
+}
+
 # COMMAND ----------
 
 # DERIVED CONFIGURATION
@@ -75,8 +81,16 @@ def get_table_names(country: str, iso3: str, adm_level1: str | None, population_
     )
 
 
+def _apply_wb_name_corrections(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Apply known name corrections to WB boundaries GeoDataFrame."""
+    for col in ["NAM_1", "NAM_2"]:
+        if col in gdf.columns:
+            gdf[col] = gdf[col].replace(WB_NAME_CORRECTIONS)
+    return gdf
+
+
 def load_cached_wb_boundaries(admin_level: int) -> gpd.GeoDataFrame:
-    """Load cached World Bank boundaries GeoJSON."""
+    """Load cached World Bank boundaries GeoJSON with name corrections applied."""
     if admin_level == 0:
         cache_path = os.path.join(VOLUME_DIR, "wb_admin0.geojson")
     elif admin_level == 1:
@@ -92,7 +106,8 @@ def load_cached_wb_boundaries(admin_level: int) -> gpd.GeoDataFrame:
             "Run 01b_download_wb.py first."
         )
 
-    return gpd.read_file(cache_path)
+    gdf = gpd.read_file(cache_path)
+    return _apply_wb_name_corrections(gdf)
 
 
 def get_all_adm_level1_names(country_iso3: str) -> list[str]:
