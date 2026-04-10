@@ -30,13 +30,13 @@ from pyspark.sql.types import StructType, StructField, DoubleType
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import get_spark, table_exists
+from shared.env import get_spark, table_exists
 from extract.config import (
     COUNTRY,
     ISO_3,
     FORCE_RECOMPUTE,
-    get_raster_path,
-    get_country_population_table,
+    RASTER_PATH,
+    COUNTRY_POPULATION_TABLE,
 )
 
 spark = get_spark()
@@ -142,19 +142,15 @@ def extract_population_chunked(
 # EXECUTE TASK
 
 print(f"Country: {COUNTRY} | ISO-3: {ISO_3}")
-
-raster_path = get_raster_path()
-population_table = get_country_population_table()
-
-print(f"Raster path: {raster_path}")
-print(f"Output table: {population_table}")
+print(f"Raster path: {RASTER_PATH}")
+print(f"Output table: {COUNTRY_POPULATION_TABLE}")
 
 total_pixels = extract_population_chunked(
-    raster_path=raster_path,
-    table_name=population_table,
+    raster_path=RASTER_PATH,
+    table_name=COUNTRY_POPULATION_TABLE,
     chunk_size=1024,
     force=FORCE_RECOMPUTE,
 )
 
-print(f"\nTask complete. Population table: {population_table}")
+print(f"\nTask complete. Population table: {COUNTRY_POPULATION_TABLE}")
 print(f"Total populated pixels: {total_pixels:,}")

@@ -28,7 +28,6 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 from shapely.geometry import Point
-from shapely.wkt import loads as wkt_loads
 from sklearn.cluster import KMeans
 
 from pyspark.sql import functions as F
@@ -38,13 +37,11 @@ from pyspark.sql.functions import udf
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import get_spark, uc_table_to_gdf, table_exists
+from shared.env import get_spark, uc_table_to_gdf, table_exists
 from transform.config import (
     COUNTRY,
     COUNTRY_ISO3,
     POPULATION_YEAR,
-    ADM_LEVEL1_LIST,
-    DISTANCES_METERS,
     FORCE_RECOMPUTE,
     H3_RESOLUTION,
     POTENTIAL_TYPE,

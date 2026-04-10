@@ -18,20 +18,19 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import os
 import urllib.request
 
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import ensure_dir, file_exists
+from shared.env import ensure_dir, file_exists
 from extract.config import (
     COUNTRY,
     POPULATION_YEAR,
     ISO_3,
     VOLUME_DIR,
     FORCE_RECOMPUTE,
-    get_raster_path,
+    RASTER_PATH,
 )
 
 # COMMAND ----------
@@ -69,13 +68,12 @@ print(f"Country: {COUNTRY} | ISO-3: {ISO_3}")
 print(f"Population year: {POPULATION_YEAR}")
 
 ensure_dir(VOLUME_DIR)
-raster_path = get_raster_path()
 
 extract_worldpop_raster(
     country_iso3=ISO_3,
     population_year=POPULATION_YEAR,
-    output_path=raster_path,
+    output_path=RASTER_PATH,
     force=FORCE_RECOMPUTE,
 )
 
-print(f"\nTask complete. Raster saved to: {raster_path}")
+print(f"\nTask complete. Raster saved to: {RASTER_PATH}")

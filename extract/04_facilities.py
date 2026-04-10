@@ -34,7 +34,7 @@ import geopandas as gpd
 
 # Import shared utilities and configuration
 import os
-from shared.utils import (
+from shared.env import (
     get_spark,
     gdf_to_uc_table,
     uc_table_to_gdf,

@@ -21,9 +21,6 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import pandas as pd
-import geopandas as gpd
-import folium as fl
 import plotly.graph_objects as go
 
 from pyspark.sql import functions as F
@@ -31,12 +28,12 @@ from pyspark.sql import functions as F
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import get_spark, uc_table_to_gdf, table_exists
+from shared.env import get_spark, uc_table_to_gdf
+from shared.core import solve_mclp_greedy
 from transform.config import (
     COUNTRY,
     COUNTRY_ISO3,
     POPULATION_YEAR,
-    FORCE_RECOMPUTE,
     H3_RESOLUTION,
     TARGET_NEW_FACILITIES,
     get_k_rings,
@@ -48,78 +45,6 @@ spark = get_spark()
 
 # Visualization sample size
 _POP_VIZ_SAMPLE = 5_000
-
-# COMMAND ----------
-
-# OPTIMIZATION FUNCTIONS
-
-def solve_mclp_greedy(w, IJ, J_existing, J_potential, max_new_facilities):
-    """
-    Greedy Maximum Covering Location Problem.
-
-    Args:
-        w: dict of {h3_cell: population}
-        IJ: dict of {h3_cell: [facility_ids that cover it]}
-        J_existing: list of existing facility IDs
-        J_potential: list of potential facility IDs
-        max_new_facilities: maximum number of new facilities to add
-
-    Returns list of results for p=1..max_new_facilities
-    """
-    # Build reverse index: facility -> set of H3 cells it covers
-    facility_covers = {}
-    for h3_cell, fac_list in IJ.items():
-        for fac in fac_list:
-            if fac not in facility_covers:
-                facility_covers[fac] = set()
-            facility_covers[fac].add(h3_cell)
-
-    # Initialize with existing facilities
-    selected = set(J_existing)
-    covered_h3 = set()
-    for fac in J_existing:
-        if fac in facility_covers:
-            covered_h3.update(facility_covers[fac])
-
-    current_coverage = sum(w.get(h3, 0) for h3 in covered_h3)
-
-    results = []
-    candidates = set(J_potential) - selected
-
-    for p in range(1, max_new_facilities + 1):
-        best_fac = None
-        best_gain = 0
-
-        # Find facility with maximum marginal gain
-        for fac in candidates:
-            if fac not in facility_covers:
-                continue
-            new_cells = facility_covers[fac] - covered_h3
-            gain = sum(w.get(h3, 0) for h3 in new_cells)
-            if gain > best_gain:
-                best_gain = gain
-                best_fac = fac
-
-        if best_fac is None or best_gain == 0:
-            print(f"  No further improvement at p={p}. Stopping.")
-            break
-
-        # Add best facility
-        selected.add(best_fac)
-        candidates.remove(best_fac)
-        covered_h3.update(facility_covers[best_fac])
-        current_coverage += best_gain
-
-        results.append({
-            "p": p,
-            "objective": current_coverage,
-            "selected_facilities": list(selected),
-            "covered_h3": list(covered_h3),
-        })
-
-        print(f"  p={p} | +{best_gain:.0f} | Total covered: {current_coverage:.0f} | Facilities: {len(selected)}")
-
-    return results
 
 # COMMAND ----------
 

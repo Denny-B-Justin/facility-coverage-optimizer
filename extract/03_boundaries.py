@@ -24,13 +24,12 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import os
 import geopandas as gpd
 
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import (
+from shared.env import (
     get_spark,
     gdf_to_uc_table,
     uc_table_to_gdf,
@@ -43,11 +42,8 @@ from extract.config import (
     VOLUME_DIR,
     FORCE_RECOMPUTE,
     ADM_LEVEL1_LIST,
-    WB_ADMIN0_URL,
-    WB_ADMIN1_URL,
-    WB_ADMIN2_URL,
     get_table_names,
-    get_country_lgu_table,
+    COUNTRY_LGU_TABLE,
     POPULATION_YEAR,
 )
 
@@ -204,10 +200,9 @@ for adm_level1 in provinces_to_process:
 
 # EXECUTE TASK: Extract LGU boundaries (country-level)
 
-country_lgu_table = get_country_lgu_table()
 lgu_gdf = extract_boundaries_lgu(
     country_iso3=ISO_3,  # e.g. "ZMB" (resolved above)
-    table_name=country_lgu_table,
+    table_name=COUNTRY_LGU_TABLE,
     force=FORCE_RECOMPUTE,
 )
 print(f"LGU count: {len(lgu_gdf)}")
@@ -221,7 +216,7 @@ print("\n" + "=" * 60)
 print("BOUNDARIES EXTRACTION COMPLETE")
 print("=" * 60)
 print(f"Country: {COUNTRY} ({ISO_3})")
-print(f"LGU boundaries: {country_lgu_table} ({len(lgu_gdf)} LGUs)")
+print(f"LGU boundaries: {COUNTRY_LGU_TABLE} ({len(lgu_gdf)} LGUs)")
 print(f"Province boundaries processed: {len(extraction_results)}")
 for result in extraction_results:
     region = result["adm_level1"] if result["adm_level1"] else "Country"

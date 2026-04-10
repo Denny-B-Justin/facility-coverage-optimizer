@@ -26,7 +26,7 @@ from pyspark.sql import functions as F
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import get_spark, table_exists
+from shared.env import get_spark, table_exists
 from transform.config import (
     COUNTRY,
     COUNTRY_ISO3,

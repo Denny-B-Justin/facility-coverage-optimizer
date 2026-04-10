@@ -26,7 +26,7 @@ import geopandas as gpd
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import ensure_dir, file_exists
+from shared.env import ensure_dir, file_exists
 from extract.config import (
     VOLUME_DIR,
     WB_ADMIN0_URL,

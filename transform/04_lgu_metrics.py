@@ -21,9 +21,7 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
-import re
 import pandas as pd
-import geopandas as gpd
 from shapely.geometry import Point
 from shapely import wkt as shapely_wkt
 
@@ -32,7 +30,8 @@ from pyspark.sql import functions as F
 # COMMAND ----------
 
 # Import shared utilities and configuration
-from shared.utils import get_spark, uc_table_to_gdf, table_exists
+from shared.env import get_spark, table_exists
+from shared.core import sanitize_col_name, solve_mclp_greedy
 from transform.config import (
     COUNTRY,
     COUNTRY_ISO3,
@@ -41,7 +40,6 @@ from transform.config import (
     H3_RESOLUTION,
     TARGET_NEW_FACILITIES,
     TARGET_ACCESS_RATE_PCT,
-    get_k_rings,
     get_transform_table_names,
     build_transform_combinations,
 )
@@ -51,27 +49,6 @@ spark = get_spark()
 # COMMAND ----------
 
 # HELPER FUNCTIONS
-
-def sanitize_col_name(name: str) -> str:
-    """
-    Converts an LGU display name into a Delta-safe column name.
-    Rules applied (in order):
-      1. Strip leading/trailing whitespace.
-      2. Replace any character that is not alphanumeric or underscore
-         with an underscore  (covers spaces, commas, parens, etc.)
-      3. Collapse consecutive underscores to a single one.
-      4. Strip leading/trailing underscores.
-      5. Prefix with 'lgu_' so the name never starts with a digit.
-    Examples:
-      "Kapiri Mposhi"  → "lgu_Kapiri_Mposhi"
-      "Choma (East)"   → "lgu_Choma_East"
-      "Lusaka"         → "lgu_Lusaka"
-    """
-    s = name.strip()
-    s = re.sub(r"[^A-Za-z0-9_]", "_", s)
-    s = re.sub(r"_+", "_", s)
-    s = s.strip("_")
-    return f"lgu_{s}"
 
 
 def find_district(lat, lon, boundaries_pdf):
@@ -83,63 +60,6 @@ def find_district(lat, lon, boundaries_pdf):
         if row["geometry"].contains(pt):
             return row["LGU"]
     return None  # point falls outside all boundaries
-
-# COMMAND ----------
-
-# GREEDY MCLP FUNCTION (needed to regenerate results if not passed from previous task)
-
-def solve_mclp_greedy(w, IJ, J_existing, J_potential, max_new_facilities):
-    """
-    Greedy Maximum Covering Location Problem.
-    """
-    facility_covers = {}
-    for h3_cell, fac_list in IJ.items():
-        for fac in fac_list:
-            if fac not in facility_covers:
-                facility_covers[fac] = set()
-            facility_covers[fac].add(h3_cell)
-
-    selected = set(J_existing)
-    covered_h3 = set()
-    for fac in J_existing:
-        if fac in facility_covers:
-            covered_h3.update(facility_covers[fac])
-
-    current_coverage = sum(w.get(h3, 0) for h3 in covered_h3)
-
-    results = []
-    candidates = set(J_potential) - selected
-
-    for p in range(1, max_new_facilities + 1):
-        best_fac = None
-        best_gain = 0
-
-        for fac in candidates:
-            if fac not in facility_covers:
-                continue
-            new_cells = facility_covers[fac] - covered_h3
-            gain = sum(w.get(h3, 0) for h3 in new_cells)
-            if gain > best_gain:
-                best_gain = gain
-                best_fac = fac
-
-        if best_fac is None or best_gain == 0:
-            print(f"  No further improvement at p={p}. Stopping.")
-            break
-
-        selected.add(best_fac)
-        candidates.remove(best_fac)
-        covered_h3.update(facility_covers[best_fac])
-        current_coverage += best_gain
-
-        results.append({
-            "p": p,
-            "objective": current_coverage,
-            "selected_facilities": list(selected),
-            "covered_h3": list(covered_h3),
-        })
-
-    return results
 
 # COMMAND ----------
 

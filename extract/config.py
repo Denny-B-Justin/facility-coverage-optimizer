@@ -4,6 +4,11 @@
 
 # COMMAND ----------
 
+# Import shared utilities
+from shared.core import get_country_codes, get_extract_table_names
+
+# COMMAND ----------
+
 # CONFIGURATION
 
 COUNTRY = "Zambia"
@@ -36,58 +41,21 @@ WB_ADMIN2_URL = f"{WB_BOUNDARIES_BASE_URL}/World%20Bank%20Official%20Boundaries%
 
 # DERIVED CONFIGURATION (computed at import time)
 
-import pycountry
-
-def _get_country_codes(country_name: str):
-    """Look up ISO codes for a country name."""
-    try:
-        country = pycountry.countries.lookup(country_name)
-        return {
-            "name": country.name,
-            "alpha_2": country.alpha_2,
-            "alpha_3": country.alpha_3,
-            "numeric": country.numeric,
-        }
-    except LookupError:
-        return None
-
-_iso_codes = _get_country_codes(COUNTRY)
+_iso_codes = get_country_codes(COUNTRY)
 ISO_2 = _iso_codes["alpha_2"]
 ISO_3 = _iso_codes["alpha_3"]
 
+COUNTRY_POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
+COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY.lower()}"
+RASTER_PATH = f"{VOLUME_DIR}/worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif"
+
 # COMMAND ----------
 
-# TABLE NAME GENERATORS
+# TABLE NAME GENERATOR (partial application of shared.core function)
+
 
 def get_table_names(country: str, iso3: str, adm_level1: str | None, population_year: int):
     """Generate table names based on configuration."""
-    if adm_level1 is not None:
-        adm_suffix = f"_{adm_level1.lower().replace('-', '_')}_province"
-        return {
-            "boundaries": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_{iso3.lower()}{adm_suffix}",
-            "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}{adm_suffix}",
-            "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
-            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{country.lower()}{adm_suffix}",
-        }
-    else:
-        return {
-            "boundaries": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_{iso3.lower()}",
-            "population": f"{UC_CATALOG}.{UC_SCHEMA}.population_{iso3.lower()}_{population_year}",
-            "facilities": f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{iso3.lower()}_osm",
-            "lgu": f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{country.lower()}",
-        }
-
-
-def get_country_population_table():
-    """Get the country-level population table name."""
-    return f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
-
-
-def get_country_lgu_table():
-    """Get the country-level LGU boundaries table name."""
-    return f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY.lower()}"
-
-
-def get_raster_path():
-    """Get the WorldPop raster file path."""
-    return f"{VOLUME_DIR}/worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif"
+    return get_extract_table_names(
+        UC_CATALOG, UC_SCHEMA, country, iso3, adm_level1, population_year
+    )
