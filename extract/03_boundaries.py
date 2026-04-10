@@ -104,7 +104,7 @@ def extract_boundaries_lgu(
 ) -> gpd.GeoDataFrame:
     """
     Extracts World Bank Admin2 boundaries for LGU analysis.
-    Normalizes to schema: LGU + geometry.
+    Normalizes to schema: province + LGU + geometry.
     """
     if not force and table_exists(table_name):
         print(f"WB LGU boundaries already exist, loading: {table_name}")
@@ -117,9 +117,9 @@ def extract_boundaries_lgu(
         raise ValueError(f"No Admin2 boundaries found for ISO3 '{country_iso3}'")
 
     lgu_gdf = (
-        gdf_country[["NAM_2", "geometry"]]
+        gdf_country[["NAM_1", "NAM_2", "geometry"]]
         .copy()
-        .rename(columns={"NAM_2": "LGU"})
+        .rename(columns={"NAM_1": "province", "NAM_2": "LGU"})
         .reset_index(drop=True)
     )
 

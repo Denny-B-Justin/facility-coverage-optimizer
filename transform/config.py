@@ -12,6 +12,10 @@
 
 # COMMAND ----------
 
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
@@ -28,6 +32,7 @@ if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
         ISO_3 as COUNTRY_ISO3,
         POPULATION_YEAR,
     )
+    from shared.env import get_spark
 else:
     # Databricks: alias the functions loaded via %run
     _get_transform_table_names = get_transform_table_names
@@ -38,9 +43,11 @@ else:
 
 # CONFIGURATION
 
-# List of admin level 1 regions to process (set to None to process entire country)
-# If empty list [], will process all provinces (requires extraction to have run first)
-ADM_LEVEL1_LIST = []  # e.g., ["Northern", "North-Western"] or [] for all
+# List of admin level 1 regions to process:
+#   - None: process entire country
+#   - []: auto-discover provinces from existing UC boundary tables
+#   - ["Northern", "Lusaka"]: process specific provinces
+ADM_LEVEL1_LIST = []
 
 # List of distances to analyze (in meters)
 DISTANCES_METERS = [2000, 4000, 5000, 10000]  # e.g., [5000, 10000] for 5km and 10km
@@ -80,6 +87,19 @@ def get_transform_table_names(
     )
 
 
+def _get_adm_level1_names_from_uc() -> list[str]:
+    """Discover province names from LGU boundary table in UC."""
+    spark = get_spark()
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY.lower()}"
+    provinces_df = spark.sql(f"SELECT DISTINCT province FROM {lgu_table} ORDER BY province")
+    provinces = [row.province for row in provinces_df.collect()]
+    print(f"Discovered {len(provinces)} provinces from UC: {provinces}")
+    return provinces
+
+
 def build_transform_combinations():
     """Build list of (province, distance) combinations to process."""
-    return _build_transform_combinations(ADM_LEVEL1_LIST, DISTANCES_METERS)
+    adm_list = ADM_LEVEL1_LIST
+    if adm_list == []:
+        adm_list = _get_adm_level1_names_from_uc()
+    return _build_transform_combinations(adm_list, DISTANCES_METERS)
