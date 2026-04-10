@@ -4,20 +4,35 @@
 
 # COMMAND ----------
 
-# Import shared utilities
-from shared.core import (
-    get_k_rings,
-    get_transform_table_names as _get_transform_table_names,
-    build_transform_combinations as _build_transform_combinations,
-    H3_EDGE_LENGTH_M,
-)
-from shared.settings import (
-    UC_CATALOG,
-    UC_SCHEMA,
-    COUNTRY,
-    ISO_3 as COUNTRY_ISO3,
-    POPULATION_YEAR,
-)
+# MAGIC %run "../shared/core"
+
+# COMMAND ----------
+
+# MAGIC %run "../shared/settings"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.core import (
+        get_k_rings,
+        get_transform_table_names as _get_transform_table_names,
+        build_transform_combinations as _build_transform_combinations,
+        H3_EDGE_LENGTH_M,
+    )
+    from shared.settings import (
+        UC_CATALOG,
+        UC_SCHEMA,
+        COUNTRY,
+        ISO_3 as COUNTRY_ISO3,
+        POPULATION_YEAR,
+    )
+else:
+    # Databricks: alias the functions loaded via %run
+    _get_transform_table_names = get_transform_table_names
+    _build_transform_combinations = build_transform_combinations
+    COUNTRY_ISO3 = ISO_3
 
 # COMMAND ----------
 

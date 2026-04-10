@@ -1,9 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely requests
-
-# COMMAND ----------
-
-# MAGIC %pip install -U geopandas shapely
+# MAGIC %pip install "numpy<2" geopandas shapely requests
 
 # COMMAND ----------
 
@@ -32,26 +28,42 @@ import geopandas as gpd
 
 # COMMAND ----------
 
-# Import shared utilities and configuration
-from shared.env import (
-    get_spark,
-    gdf_to_uc_table,
-    uc_table_to_gdf,
-    pdf_to_uc_table,
-    table_exists,
-)
-from shared.settings import ISO_2
-from extract.config import (
-    COUNTRY,
-    ISO_3,
-    FORCE_RECOMPUTE,
-    ADM_LEVEL1_LIST,
-    FACILITIES_SOURCE,
-    FACILITIES_INPUT_PATH,
-    get_table_names,
-    POPULATION_YEAR,
-    get_all_adm_level1_names,
-)
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "../shared/settings"
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.env import (
+        get_spark,
+        gdf_to_uc_table,
+        uc_table_to_gdf,
+        pdf_to_uc_table,
+        table_exists,
+    )
+    from shared.settings import ISO_2
+    from extract.config import (
+        COUNTRY,
+        ISO_3,
+        FORCE_RECOMPUTE,
+        ADM_LEVEL1_LIST,
+        FACILITIES_SOURCE,
+        FACILITIES_INPUT_PATH,
+        get_table_names,
+        POPULATION_YEAR,
+        get_all_adm_level1_names,
+    )
+
+# COMMAND ----------
 
 spark = get_spark()
 

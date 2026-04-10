@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install shapely rasterio
+# MAGIC %pip install "numpy<2" shapely rasterio
 
 # COMMAND ----------
 
@@ -29,15 +29,27 @@ from pyspark.sql.types import StructType, StructField, DoubleType
 
 # COMMAND ----------
 
-# Import shared utilities and configuration
-from shared.env import get_spark, table_exists
-from extract.config import (
-    COUNTRY,
-    ISO_3,
-    FORCE_RECOMPUTE,
-    RASTER_PATH,
-    COUNTRY_POPULATION_TABLE,
-)
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.env import get_spark, table_exists
+    from extract.config import (
+        COUNTRY,
+        ISO_3,
+        FORCE_RECOMPUTE,
+        RASTER_PATH,
+        COUNTRY_POPULATION_TABLE,
+    )
+
+# COMMAND ----------
 
 spark = get_spark()
 

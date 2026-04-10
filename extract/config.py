@@ -4,24 +4,37 @@
 
 # COMMAND ----------
 
-# Import shared utilities
+# MAGIC %run "../shared/core"
+
+# COMMAND ----------
+
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "../shared/settings"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
 import os
 import geopandas as gpd
-from shared.core import get_extract_table_names
-from shared.env import file_exists
-from shared.settings import (
-    UC_CATALOG,
-    UC_SCHEMA,
-    COUNTRY,
-    ISO_3,
-    POPULATION_YEAR,
-)
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.core import get_extract_table_names
+    from shared.env import file_exists
+    from shared.settings import (
+        UC_CATALOG,
+        UC_SCHEMA,
+        COUNTRY,
+        ISO_3,
+        POPULATION_YEAR,
+    )
 
 # COMMAND ----------
 
 # CONFIGURATION
 
-VOLUME_DIR = f"/Volumes/{UC_CATALOG}/{UC_SCHEMA}/vgpbpi163"
+VOLUME_DIR = f"/Volumes/{UC_CATALOG}/sgpbpi163/vgpbpi163"
 
 # Set to True to recompute cached results even if tables exist
 FORCE_RECOMPUTE = False

@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely folium plotly
+# MAGIC %pip install "numpy<2" geopandas shapely folium plotly
 
 # COMMAND ----------
 
@@ -27,19 +27,35 @@ from pyspark.sql import functions as F
 
 # COMMAND ----------
 
-# Import shared utilities and configuration
-from shared.env import get_spark, uc_table_to_gdf
-from shared.core import solve_mclp_greedy
-from transform.config import (
-    COUNTRY,
-    COUNTRY_ISO3,
-    POPULATION_YEAR,
-    H3_RESOLUTION,
-    TARGET_NEW_FACILITIES,
-    get_k_rings,
-    get_transform_table_names,
-    build_transform_combinations,
-)
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "../shared/core"
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.env import get_spark, uc_table_to_gdf
+    from shared.core import solve_mclp_greedy
+    from transform.config import (
+        COUNTRY,
+        COUNTRY_ISO3,
+        POPULATION_YEAR,
+        H3_RESOLUTION,
+        TARGET_NEW_FACILITIES,
+        get_k_rings,
+        get_transform_table_names,
+        build_transform_combinations,
+    )
+
+# COMMAND ----------
 
 spark = get_spark()
 

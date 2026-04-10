@@ -9,10 +9,8 @@ UC_SCHEMA_DEFAULT = "sgpbpi163"
 def _get_uc_schema() -> str:
     """Get UC_SCHEMA from dbutils widget (Databricks) or use default (local)."""
     try:
-        from shared.env import get_dbutils
-        dbutils = get_dbutils()
         return dbutils.widgets.get("UC_SCHEMA")
-    except Exception:
+    except:
         return UC_SCHEMA_DEFAULT
 
 UC_SCHEMA = _get_uc_schema()

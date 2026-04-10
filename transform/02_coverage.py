@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely
+# MAGIC %pip install "numpy<2" geopandas shapely
 
 # COMMAND ----------
 
@@ -25,19 +25,31 @@ from pyspark.sql import functions as F
 
 # COMMAND ----------
 
-# Import shared utilities and configuration
-from shared.env import get_spark, table_exists
-from transform.config import (
-    COUNTRY,
-    COUNTRY_ISO3,
-    POPULATION_YEAR,
-    FORCE_RECOMPUTE,
-    H3_RESOLUTION,
-    H3_EDGE_LENGTH_M,
-    get_k_rings,
-    get_transform_table_names,
-    build_transform_combinations,
-)
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.env import get_spark, table_exists
+    from transform.config import (
+        COUNTRY,
+        COUNTRY_ISO3,
+        POPULATION_YEAR,
+        FORCE_RECOMPUTE,
+        H3_RESOLUTION,
+        H3_EDGE_LENGTH_M,
+        get_k_rings,
+        get_transform_table_names,
+        build_transform_combinations,
+    )
+
+# COMMAND ----------
 
 spark = get_spark()
 

@@ -1,4 +1,8 @@
 # Databricks notebook source
+# MAGIC %pip install "numpy<2" geopandas shapely
+
+# COMMAND ----------
+
 # Environment detection and adaptive storage backends
 # Enables running pipelines locally (sqlite/csv) or on Databricks (UC tables)
 #
@@ -202,7 +206,7 @@ class DatabricksStorageBackend:
     def dbutils(self):
         """Lazy load dbutils."""
         if self._dbutils is None:
-            self._dbutils = get_dbutils()
+            self._dbutils = dbutils
         return self._dbutils
 
     def table_exists(self, table_name: str) -> bool:
@@ -232,8 +236,6 @@ class DatabricksStorageBackend:
 
     def save_gdf(self, gdf: gpd.GeoDataFrame, table_name: str, mode: str = "overwrite") -> None:
         """Save GeoDataFrame to Unity Catalog table with geometry as WKT."""
-        from shared.core import deduplicate_columns
-
         pdf = pd.DataFrame(gdf.drop(columns=["geometry"]))
         pdf["geometry_wkt"] = gdf.geometry.apply(lambda g: g.wkt if g else None)
 
@@ -308,17 +310,6 @@ def get_spark():
     """Get the active Spark session."""
     from pyspark.sql import SparkSession
     return SparkSession.builder.getOrCreate()
-
-
-def get_dbutils():
-    """Get dbutils in Databricks environment."""
-    try:
-        from pyspark.dbutils import DBUtils
-        return DBUtils(get_spark())
-    except ImportError:
-        # Fallback for Databricks notebook environment
-        import IPython
-        return IPython.get_ipython().user_ns.get("dbutils")
 
 
 # -----------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 # Databricks notebook source
-# MAGIC %pip install geopandas shapely scikit-learn
+# MAGIC %pip install "numpy<2" geopandas shapely scikit-learn
 
 # COMMAND ----------
 
@@ -36,21 +36,33 @@ from pyspark.sql.functions import udf
 
 # COMMAND ----------
 
-# Import shared utilities and configuration
-from shared.env import get_spark, uc_table_to_gdf, table_exists
-from transform.config import (
-    COUNTRY,
-    COUNTRY_ISO3,
-    POPULATION_YEAR,
-    FORCE_RECOMPUTE,
-    H3_RESOLUTION,
-    POTENTIAL_TYPE,
-    GRID_SPACING,
-    N_CLUSTERS,
-    get_k_rings,
-    get_transform_table_names,
-    build_transform_combinations,
-)
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.env import get_spark, uc_table_to_gdf, table_exists
+    from transform.config import (
+        COUNTRY,
+        COUNTRY_ISO3,
+        POPULATION_YEAR,
+        FORCE_RECOMPUTE,
+        H3_RESOLUTION,
+        POTENTIAL_TYPE,
+        GRID_SPACING,
+        N_CLUSTERS,
+        get_k_rings,
+        get_transform_table_names,
+        build_transform_combinations,
+    )
+
+# COMMAND ----------
 
 spark = get_spark()
 

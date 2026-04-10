@@ -22,16 +22,26 @@ import urllib.request
 
 # COMMAND ----------
 
-# Import shared utilities and configuration
-from shared.env import ensure_dir, file_exists
-from extract.config import (
-    COUNTRY,
-    POPULATION_YEAR,
-    ISO_3,
-    VOLUME_DIR,
-    FORCE_RECOMPUTE,
-    RASTER_PATH,
-)
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.env import ensure_dir, file_exists
+    from extract.config import (
+        COUNTRY,
+        POPULATION_YEAR,
+        ISO_3,
+        VOLUME_DIR,
+        FORCE_RECOMPUTE,
+        RASTER_PATH,
+    )
 
 # COMMAND ----------
 

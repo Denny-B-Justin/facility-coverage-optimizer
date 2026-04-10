@@ -25,14 +25,24 @@ import geopandas as gpd
 
 # COMMAND ----------
 
-# Import shared utilities and configuration
-from shared.env import ensure_dir, file_exists
-from extract.config import (
-    VOLUME_DIR,
-    WB_ADMIN0_URL,
-    WB_ADMIN1_URL,
-    WB_ADMIN2_URL,
-)
+# MAGIC %run "../shared/env"
+
+# COMMAND ----------
+
+# MAGIC %run "./config"
+
+# COMMAND ----------
+
+# Local imports (skipped in Databricks where %run loads modules)
+import os
+if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
+    from shared.env import ensure_dir, file_exists
+    from extract.config import (
+        VOLUME_DIR,
+        WB_ADMIN0_URL,
+        WB_ADMIN1_URL,
+        WB_ADMIN2_URL,
+    )
 
 # COMMAND ----------
 

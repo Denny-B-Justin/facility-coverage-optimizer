@@ -1,3 +1,4 @@
+# Databricks notebook source
 # Pure functions that can be unit tested without Spark/Databricks dependencies
 # These functions have no side effects and return the same output for the same input
 
