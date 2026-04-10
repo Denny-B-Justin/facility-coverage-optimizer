@@ -1,7 +1,7 @@
 # Databricks notebook source
 # /// script
 # [tool.databricks.environment]
-# environment_version = "4"
+# environment_version = "5"
 # ///
 # MAGIC %pip install geopandas shapely rasterio pycountry folium plotly scikit-learn pyproj
 
@@ -23,7 +23,7 @@ from sklearn.cluster import KMeans
 from shapely import wkt as shapely_wkt
 
 from pyspark.sql import functions as F
-from pyspark.sql.types import StringType, StructType, StructField
+from pyspark.sql.types import StringType, StructType, StructField, LongType, DoubleType
 from pyspark.sql.functions import udf
 
 import re
@@ -34,7 +34,7 @@ print(f"Spark version: {spark.version}")
 # CONFIGURATION
 COUNTRY = "Zambia"
 COUNTRY_ISO3 = "ZMB"
-ADM_LEVEL1 = "Northern"
+ADM_LEVEL1 = "Central"
 ADM_LEVEL2 = None
 
 POPULATION_YEAR = 2025
@@ -45,7 +45,7 @@ UC_SCHEMA = "sgpbpi163"
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
 
-DISTANCE_METERS = 5000
+DISTANCE_METERS = 2000
 dis_km = int(DISTANCE_METERS / 1000)
 distance_name = f"{dis_km}km"
 
@@ -70,14 +70,13 @@ K_RINGS = int(np.ceil(DISTANCE_METERS / H3_EDGE_LENGTH_M[H3_RESOLUTION]))
 
 # COMMAND ----------
 
-# Derived table names (input)
-# Derived table names (cached intermediate results)
+
+BASE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.base_dashboard_data_{COUNTRY_ISO3.lower()}"
 
 if ADM_LEVEL1 != None:
     GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province"
     FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}_osm_{ADM_LEVEL1.lower()}_province"
     POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}_province"
-
     POPULATION_AOI_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_{ADM_LEVEL1.lower()}_province_{distance_name}"
     FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}"
     FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}"
@@ -85,12 +84,10 @@ if ADM_LEVEL1 != None:
     POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}"
     LGU_TABLE= f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
     LGU_ACCESSIBILITY_TABLE = (f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province_{distance_name}")
-
 else:
     GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}"
     FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}"
     POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}"
-
     POPULATION_AOI_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_{distance_name}"
     FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.lower()}_{distance_name}"
     FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
@@ -98,6 +95,20 @@ else:
     POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}_{distance_name}"
     LGU_TABLE= f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
     LGU_ACCESSIBILITY_TABLE = (f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{COUNTRY_ISO3.lower()}_{distance_name}")
+    
+if ADM_LEVEL1 == "North-Western":
+    GADM_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_{COUNTRY_ISO3.lower()}_northwestern_province"
+    FACILITIES_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.health_facilities_{COUNTRY_ISO3.lower()}_osm_northwestern_province"
+    POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_northwestern_province"
+    POPULATION_AOI_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_aoi_{COUNTRY_ISO3.lower()}_{POPULATION_YEAR}_northwestern_province_{distance_name}"
+    FACILITIES_H3_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_h3_{COUNTRY_ISO3.lower()}_northwestern_province_{distance_name}"
+    FACILITIES_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.facilities_coverage_{COUNTRY_ISO3.lower()}_northwestern_province_{distance_name}"
+    POTENTIAL_LOCATIONS_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_locations_{COUNTRY_ISO3.lower()}_northwestern_province_{distance_name}"
+    POTENTIAL_COVERAGE_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.potential_coverage_{COUNTRY_ISO3.lower()}_northwestern_province_{distance_name}"
+    LGU_TABLE= f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
+    LGU_ACCESSIBILITY_TABLE = (f"{UC_CATALOG}.{UC_SCHEMA}.lgu_accessibility_results_{COUNTRY_ISO3.lower()}_northwestern_province_{distance_name}")
+
+
 
 # COMMAND ----------
 
@@ -658,12 +669,13 @@ def solve_mclp_greedy(w, IJ, J_existing, J_potential, max_new_facilities):
         })
 
         print(f"  p={p} | +{best_gain:.0f} | Total covered: {current_coverage:.0f} | Facilities: {len(selected)}")
+        total_fac = p
 
-    return results
+    return results, total_fac
 
 
 print("Running greedy MCLP optimization...")
-pareto_results = solve_mclp_greedy(w, JI, J_existing, J_potential, TARGET_NEW_FACILITIES + 5)
+pareto_results, total_facilities = solve_mclp_greedy(w, JI, J_existing, J_potential, TARGET_NEW_FACILITIES + 5)
 
 # COMMAND ----------
 
@@ -712,7 +724,7 @@ fig.show()
 
 # VISUALIZE: OPTIMIZED RESULT FOR TARGET_NEW_FACILITIES
 
-entry = next(item for item in pareto_results if item["p"] == TARGET_NEW_FACILITIES)
+entry = next(item for item in pareto_results if item["p"] == total_facilities)
 opened_ids = set(entry["selected_facilities"])
 covered_h3_set = set(entry["covered_h3"])
 
@@ -1043,3 +1055,64 @@ print(
 )
 display(result_sdf)
 
+
+# COMMAND ----------
+
+schema = StructType([
+    StructField("country",              StringType(),  True),
+    StructField("province",             StringType(),  True),  # nullable
+    StructField("year",                 LongType(),    True),
+    StructField("central_lat",          DoubleType(),  True),
+    StructField("central_long",         DoubleType(),  True),
+    StructField("distance_km",          LongType(),    True),
+    StructField("total_new_facilities", LongType(),    True),
+    StructField("current_access",       DoubleType(),  True),
+    StructField("geometry_wkt",         StringType(),  True),
+])
+
+# Step 3: Re-run your pipeline, but force the schema on createDataFrame
+def base_pdf_to_uc_table(pdf: pd.DataFrame, table_name: str, mode: str = "append"):
+    # pandas 3.x infers pure-string columns as StringDtype, which breaks
+    # PySpark Arrow serialization — cast back to object dtype first
+    pdf = pdf.copy()
+    str_cols = pdf.select_dtypes(include="string").columns
+    pdf[str_cols] = pdf[str_cols].astype(object)
+
+    sdf = spark.createDataFrame(pdf, schema=schema)
+    write_mode = "overwrite" if mode == "overwrite" else "append"
+
+    if not spark.catalog.tableExists(table_name):
+        sdf.write.mode("overwrite").saveAsTable(table_name)
+        action = "created"
+    else:
+        sdf.write.mode(write_mode).saveAsTable(table_name)
+        action = "appended"
+
+    print(f"Table {action}: {table_name} ({len(pdf)} rows)")
+
+# COMMAND ----------
+
+# Assemble metadata for the base_data dataframe
+metadata = {
+    "country": COUNTRY,                                 # e.g., "Zambia"
+    "province": ADM_LEVEL1 if ADM_LEVEL1 else None,                              # may be None
+    "year": POPULATION_YEAR,                                       # e.g., 2024
+    "central_lat": CENTER_LAT,
+    "central_long": CENTER_LON,
+    "distance_km": dis_km,
+    "total_new_facilities": len(result_pdf),            # number of facilities added
+    "current_access": current_access,
+}
+
+# Retrieve the boundary geometry (WKT) for the selected location
+# boundary_tbl = f"gadm_boundaries_{COUNTRY_ISO3.lower()}_{ADM_LEVEL1.lower()}_province"
+boundary_row = spark.table(GADM_TABLE).select("geometry_wkt").limit(1).collect()
+metadata["geometry_wkt"] = boundary_row[0]["geometry_wkt"] if boundary_row else None
+
+# Create a pandas DataFrame with a single row
+base_data = pd.DataFrame([metadata])
+
+# Write the dataframe to the Unity Catalog table
+base_pdf_to_uc_table(base_data, BASE_TABLE)
+
+base_data

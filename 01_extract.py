@@ -30,7 +30,7 @@ import zipfile
 # CONFIGURATION
 
 COUNTRY = "Zambia"
-ADM_LEVEL1 = "North-Western"
+ADM_LEVEL1 = "Western"
 ADM_LEVEL2 = None
 POPULATION_YEAR = 2025
 
@@ -151,8 +151,6 @@ else:
     lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.gadm_boundaries_lgu_{COUNTRY.lower()}"
 
 # COMMAND ----------
-
-
 
 print(f"GADM Table: {gadm_table}")
 print(f"Population Table: {population_table}")
