@@ -40,10 +40,10 @@ else:
 
 # List of admin level 1 regions to process (set to None to process entire country)
 # If empty list [], will process all provinces (requires extraction to have run first)
-ADM_LEVEL1_LIST = ["Northern"]  # e.g., ["Northern", "North-Western"] or [] for all
+ADM_LEVEL1_LIST = []  # e.g., ["Northern", "North-Western"] or [] for all
 
 # List of distances to analyze (in meters)
-DISTANCES_METERS = [5000, 10000]  # e.g., [5000, 10000] for 5km and 10km
+DISTANCES_METERS = [2000, 4000, 5000, 10000]  # e.g., [5000, 10000] for 5km and 10km
 
 TRAVEL_API = ""  # "" for buffer, "osm", or "mapbox"
 MAPBOX_ACCESS_TOKEN = ""
