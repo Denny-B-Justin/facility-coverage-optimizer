@@ -22,6 +22,8 @@ dbutils.library.restartPython()
 
 # COMMAND ----------
 
+import datetime
+
 import pandas as pd
 import plotly.graph_objects as go
 import folium as fl
@@ -152,12 +154,15 @@ def create_coverage_map(
         )
         geo_boundary.add_to(folium_map)
 
-    # Add existing facilities (blue markers)
+    # Add existing facilities
     for _, row in facilities_pdf.iterrows():
-        fl.Marker(
-            [row["lat"], row["lon"]],
-            icon=fl.Icon(color="blue"),
-            popup=f"Facility: {row.get('ID', 'N/A')}",
+        fl.CircleMarker(
+            location=[row["lat"], row["lon"]],
+            radius=4,
+            color="blue",
+            fill=True,
+            fill_color="blue",
+            fill_opacity=0.8,
         ).add_to(folium_map)
 
     # Add population WITHOUT access (red circles)
@@ -190,10 +195,79 @@ def create_coverage_map(
 
 # COMMAND ----------
 
-# EXECUTE TASK: Generate visualizations for each combination
+# DETERMINE WHICH COMBINATIONS TO VISUALIZE
+#
+# By default, only visualize combinations whose LGU accessibility table
+# was updated after the notebook started (i.e. freshly computed).
+# If nothing was updated, fall back to national-level results.
 
-transform_combinations = build_transform_combinations()
-print(f"Will generate visualizations for {len(transform_combinations)} combination(s):")
+def _get_pipeline_start_time():
+    """Get pipeline start time from job parameter, or fall back to now."""
+    try:
+        epoch_ms = int(dbutils.widgets.get("PIPELINE_START_EPOCH_MS"))
+        return datetime.datetime.fromtimestamp(epoch_ms / 1000, tz=datetime.timezone.utc)
+    except Exception:
+        return datetime.datetime.now(datetime.timezone.utc)
+
+
+_job_start = _get_pipeline_start_time()
+
+all_combinations = build_transform_combinations()
+
+
+def _get_table_updated_at(table_name: str):
+    """Return last-modified timestamp of a Delta table, or None."""
+    try:
+        rows = spark.sql(f"DESCRIBE HISTORY {table_name} LIMIT 1").collect()
+        if rows:
+            return rows[0]["timestamp"]
+    except Exception:
+        pass
+    return None
+
+
+def _select_viz_combinations(combinations, job_start):
+    """Pick combinations whose results were freshly written after job_start."""
+    fresh = []
+    for adm, dist in combinations:
+        tables = get_transform_table_names(
+            COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+        )
+        if not table_exists(tables["lgu_accessibility"]):
+            continue
+        ts = _get_table_updated_at(tables["lgu_accessibility"])
+        if ts is not None and ts.replace(tzinfo=None) >= job_start.replace(tzinfo=None):
+            fresh.append((adm, dist))
+
+    if fresh:
+        return fresh
+
+    # Nothing freshly updated — fall back to national-level at all distances
+    national = []
+    for adm, dist in combinations:
+        if adm is None:
+            tables = get_transform_table_names(
+                COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+            )
+            if table_exists(tables["lgu_accessibility"]):
+                national.append((adm, dist))
+
+    if national:
+        return national
+
+    # Last resort: first combination that exists
+    for adm, dist in combinations:
+        tables = get_transform_table_names(
+            COUNTRY, COUNTRY_ISO3, adm, POPULATION_YEAR, dist
+        )
+        if table_exists(tables["lgu_accessibility"]):
+            return [(adm, dist)]
+
+    return []
+
+
+transform_combinations = _select_viz_combinations(all_combinations, _job_start)
+print(f"Will visualize {len(transform_combinations)} of {len(all_combinations)} combination(s):")
 for adm, dist in transform_combinations:
     region = adm if adm else "Country"
     print(f"  - {region} @ {int(dist/1000)}km")
@@ -318,9 +392,12 @@ for adm_level1, distance_meters in transform_combinations:
         "left_anti",
     ).select("xcoord", "ycoord", "opacity")
 
-    # Sample for visualization
-    pop_with_access_pdf = sample_dataframe(pop_with_access_sdf, VIZ_SAMPLE_SIZE, seed=1)
-    pop_without_access_pdf = sample_dataframe(pop_without_access_sdf, VIZ_SAMPLE_SIZE, seed=2)
+    # Scale sample size down for country-level (many more facilities + points)
+    n_facilities = selected_hosp_sdf.count()
+    viz_samples = min(VIZ_SAMPLE_SIZE, max(1000, 10_000 - n_facilities * 3))
+
+    pop_with_access_pdf = sample_dataframe(pop_with_access_sdf, viz_samples, seed=1)
+    pop_without_access_pdf = sample_dataframe(pop_without_access_sdf, viz_samples, seed=2)
     facilities_pdf = selected_hosp_sdf.select("ID", "lat", "lon").toPandas()
 
     print(f"  Sampled {len(pop_with_access_pdf)} covered, {len(pop_without_access_pdf)} uncovered points")
@@ -342,4 +419,4 @@ for adm_level1, distance_meters in transform_combinations:
 print("\n" + "=" * 60)
 print("VISUALIZATION COMPLETE")
 print("=" * 60)
-print(f"Generated visualizations for {len(transform_combinations)} combinations")
+print(f"Generated visualizations for {len(transform_combinations)} of {len(all_combinations)} combinations")
