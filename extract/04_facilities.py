@@ -103,7 +103,7 @@ def extract_health_facilities_osm(
     def query_osm_amenity(amenity: str) -> pd.DataFrame:
         query = f"""
         [out:json];
-        area["ISO3166-1"="{iso_2}"];
+        area["ISO3166-1:alpha2"="{iso_2}"];
         (
           node["amenity"="{amenity}"](area);
           way["amenity"="{amenity}"](area);
@@ -115,7 +115,8 @@ def extract_health_facilities_osm(
         response = session.get(
             "http://overpass-api.de/api/interpreter",
             params={"data": query},
-            timeout=120,
+            timeout=220,
+            headers={"User-Agent": "PIA-Pipeline/1.0"},
         )
         response.raise_for_status()
         elements = response.json()["elements"]
@@ -152,7 +153,16 @@ def extract_health_facilities_osm(
     selected_health['ID'] = selected_health['level_0'].astype(str)+'_current'
 
     print(f"Number of hospitals and clinics extracted: {len(gdf_health)}")
+    
     print(f"Number of facilities in AOI ({adm_level_name}): {len(selected_health)}")
+    if selected_health.empty:
+        print(
+            f"WARNING: No facilities found within the AOI boundary for {adm_level_name}. "
+            "Check that selected_boundary CRS matches the OSM data, or that the ISO-2 "
+            "code corresponds to the correct boundary."
+        )
+        return pd.DataFrame()
+    
     selected_health = selected_health.loc[:, ~selected_health.columns.duplicated()]
 
     # Convert geometry to WKT string before writing to Spark
