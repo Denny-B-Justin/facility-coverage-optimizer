@@ -114,7 +114,7 @@ def get_transform_table_names(
     distance_name = f"{int(distance_meters / 1000)}km"
 
     if adm_level1 is not None:
-        adm_suffix = f"_{adm_level1.lower().replace('-', '_')}_province"
+        adm_suffix = f"_{adm_level1.lower().replace('-', '_').replace(' ', '_')}_province"
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
@@ -130,7 +130,7 @@ def get_transform_table_names(
     else:
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}",
-            "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}",
+            "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}",
             "population_aoi": f"{catalog}.{schema}.population_aoi_{iso3.lower()}_{population_year}_{distance_name}",
             "facilities_h3": f"{catalog}.{schema}.facilities_h3_{iso3.lower()}_{distance_name}",
