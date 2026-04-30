@@ -71,7 +71,7 @@ def get_extract_table_names(
         Dictionary of table names for boundaries, population, facilities, lgu
     """
     if adm_level1 is not None:
-        adm_suffix = f"_{adm_level1.lower().replace('-', '_')}_province"
+        adm_suffix = f"_{adm_level1.lower().replace('-', '_').replace(' ', '_')}_province"
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}{adm_suffix}",
