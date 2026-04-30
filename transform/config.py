@@ -43,10 +43,12 @@ else:
 
 # CONFIGURATION
 
+# Include country-level (ADM0) processing
+INCLUDE_ADM_LEVEL0 = True
+
 # List of admin level 1 regions to process:
-#   - None: process entire country
-#   - []: auto-discover provinces from existing UC boundary tables
-#   - ["Northern", "Lusaka"]: process specific provinces
+#   - []: all provinces (auto-discovered from UC)
+#   - ["Northern", "Lusaka"]: specific provinces only
 ADM_LEVEL1_LIST = []
 
 # List of distances to analyze (in meters)
@@ -68,6 +70,25 @@ FORCE_RECOMPUTE = False
 
 # Target access rate for LGU equity analysis
 TARGET_ACCESS_RATE_PCT = 90.0
+
+# Base dashboard data table (aggregated metadata for frontend)
+BASE_DASHBOARD_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.base_dashboard_data_{COUNTRY_ISO3.lower()}"
+
+# Visualization settings
+ENABLE_VISUALIZATION_DEFAULT = True
+VIZ_SAMPLE_SIZE = 5_000  # Max points per category for Folium maps
+
+
+def _get_enable_visualization() -> bool:
+    """Get ENABLE_VISUALIZATION from dbutils widget or use default."""
+    try:
+        val = dbutils.widgets.get("ENABLE_VISUALIZATION")
+        return val.lower() in ("true", "1", "yes")
+    except:
+        return ENABLE_VISUALIZATION_DEFAULT
+
+
+ENABLE_VISUALIZATION = _get_enable_visualization()
 
 # COMMAND ----------
 
@@ -99,7 +120,16 @@ def _get_adm_level1_names_from_uc() -> list[str]:
 
 def build_transform_combinations():
     """Build list of (province, distance) combinations to process."""
-    adm_list = ADM_LEVEL1_LIST
-    if adm_list == []:
-        adm_list = _get_adm_level1_names_from_uc()
+    adm_list = []
+
+    # ADM0 (country-level)
+    if INCLUDE_ADM_LEVEL0:
+        adm_list.append(None)
+
+    # ADM1 (provinces)
+    if ADM_LEVEL1_LIST == []:
+        adm_list.extend(_get_adm_level1_names_from_uc())
+    else:
+        adm_list.extend(ADM_LEVEL1_LIST)
+
     return _build_transform_combinations(adm_list, DISTANCES_METERS)

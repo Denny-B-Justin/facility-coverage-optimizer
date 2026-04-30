@@ -23,7 +23,7 @@ See [docs/optimization_approach.md](docs/optimization_approach.md) for details o
 │   ├── 01_prepare.py
 │   ├── 02_coverage.py
 │   ├── 03_optimize.py
-│   └── 04_lgu_metrics.py
+│   └── 04_visualize.py
 └── tests/
     ├── test_core.py        # Unit tests for pure functions
     ├── test_env.py         # Tests for environment/storage
@@ -62,21 +62,26 @@ POPULATION_YEAR = 2025
 ### Extract Pipeline (`extract/config.py`)
 
 ```python
-ADM_LEVEL1_LIST = []      # [] = all provinces, or ["Northern", "Southern"]
-FACILITIES_SOURCE = "osm" # "osm" or "file"
+INCLUDE_ADM_LEVEL0 = True        # Include country-level (ADM0) processing
+ADM_LEVEL1_LIST = []             # [] = all provinces, or ["Northern", "Southern"]
+FACILITIES_SOURCE = "osm"        # "osm" or "file"
 FORCE_RECOMPUTE = False
 ```
 
 ### Transform Pipeline (`transform/config.py`)
 
 ```python
-ADM_LEVEL1_LIST = ["Northern"]  # Provinces to process
-DISTANCES_METERS = [5000, 10000] # Catchment radii to analyze
+INCLUDE_ADM_LEVEL0 = True        # Include country-level (ADM0) processing
+ADM_LEVEL1_LIST = []             # [] = all provinces, or ["Northern", "Southern"]
+DISTANCES_METERS = [2000, 4000, 5000, 10000]  # Catchment radii to analyze
 TARGET_NEW_FACILITIES = 50
 POTENTIAL_TYPE = "grid"   # "grid" or "kmeans"
 GRID_SPACING = 0.03
 FORCE_RECOMPUTE = False
+ENABLE_VISUALIZATION = True      # Set false to skip 04_visualize.py
 ```
+
+The `ENABLE_VISUALIZATION` setting can also be overridden via Databricks job parameters.
 
 ## Usage
 
@@ -94,8 +99,8 @@ Run tasks in order:
 **Transform Pipeline:**
 1. `transform/01_prepare.py` - Prepare data, generate potential locations
 2. `transform/02_coverage.py` - Compute H3-based coverage
-3. `transform/03_optimize.py` - Run greedy MCLP optimization
-4. `transform/04_lgu_metrics.py` - Compute per-LGU accessibility metrics
+3. `transform/03_optimize.py` - Run optimization, compute per-LGU accessibility metrics
+4. `transform/04_visualize.py` - Generate Pareto charts and coverage maps (optional)
 
 ### Testing with a Different Schema
 
@@ -122,6 +127,7 @@ Expensive operations are cached to UC tables. Set `FORCE_RECOMPUTE = True` to re
 | `*_facilities_h3_*` | Facilities with H3 index |
 | `*_coverage_*` | Coverage pairs |
 | `lgu_accessibility_results_*` | Final optimization results |
+| `base_dashboard_data_*` | Aggregated metadata for frontend data app |
 
 ## Output
 
