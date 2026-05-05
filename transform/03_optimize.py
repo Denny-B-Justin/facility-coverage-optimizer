@@ -279,7 +279,10 @@ for adm_level1, distance_meters in transform_combinations:
         result_rows = []
 
         for idx, step in enumerate(pareto_results):
-            p = step["p"]
+            if step["p"] == 0:
+                continue
+
+            p = step["p"] - 1
             covered_h3_set = set(step["covered_h3"])
 
             # Identify the single new facility added in this step
@@ -352,7 +355,12 @@ for adm_level1, distance_meters in transform_combinations:
                 f"({int(first['total_facilities']) - n_existing} new facilities needed)."
             )
         else:
-            last = result_pdf.iloc[-1]
+            try:
+                last = result_pdf.iloc[-1]
+            except IndexError:
+                print(f"Skipping {adm_level1} @ {distance_meters}")
+                continue
+
             below = [
                 lgu_raw for lgu_raw, safe in name_map.items()
                 if last[safe] < TARGET_ACCESS_RATE_PCT
@@ -428,7 +436,12 @@ for adm_level1, distance_meters in transform_combinations:
 
         # Read current access from first row of results
         try:
-            first_row = result_pdf.iloc[0]
+            # Find the first row where the new_facility identifier ends with "_current"
+            mask = result_pdf["new_facility"].astype(str).str.endswith("_current")
+            if mask.any():
+                first_row = result_pdf[mask].iloc[0]
+            else:
+                first_row = result_pdf.iloc[0]
         except IndexError:
             print(f"Skipped {adm_level1} @ {distance_meters}")
             continue
