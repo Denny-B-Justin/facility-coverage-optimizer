@@ -208,7 +208,13 @@ def solve_mclp_greedy(
 
     current_coverage = sum(w.get(h3, 0) for h3 in covered_h3)
 
-    results = []
+    results = [{
+        "p": 0,
+        "objective": 0.0,
+        "selected_facilities": [],
+        "covered_h3": [],
+    }]
+    
     candidates = set(J_potential) - selected
 
     for p in range(1, max_new_facilities + 1):
