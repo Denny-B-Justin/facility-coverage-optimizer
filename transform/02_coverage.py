@@ -93,7 +93,7 @@ def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution:
     )
 
     # Join back to facilities
-    result_sdf = facilities_sdf.join(
+    result_sdf = facilities_sdf.drop("pop_with_access").join(
         facility_coverage_sdf.withColumnRenamed("facility_ID", "ID"),
         on="ID",
         how="left"
@@ -128,7 +128,7 @@ def compute_coverage_h3(
     result_sdf, flat_sdf = _compute_coverage_h3_internal(
         facilities_sdf, population_sdf, h3_resolution, k_rings
     )
-
+    print("Computing coverage: done")
     # Save to UC tables
     result_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(facilities_output_table)
     flat_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(coverage_output_table)
@@ -223,6 +223,10 @@ for adm_level1, distance_meters in transform_combinations:
     print(f"  Maximum access attainable: {max_access_possible}%")
 
     print(f"\n  Completed: {region_name} @ {distance_name}")
+
+# COMMAND ----------
+
+display(population_aoi_sdf)
 
 # COMMAND ----------
 
