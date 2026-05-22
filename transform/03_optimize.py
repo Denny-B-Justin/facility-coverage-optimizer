@@ -133,7 +133,6 @@ def save_dashboard_metadata(
 
     mode = "overwrite" if first_write else "append"
     sdf.write.mode(mode).option("overwriteSchema", "true").saveAsTable(table_name)
-    print(pdf)
     print(f"  Dashboard metadata saved ({mode}): {table_name}")
 
 # COMMAND ----------
@@ -453,7 +452,7 @@ for adm_level1, distance_meters in transform_combinations:
         save_dashboard_metadata(
             spark=spark,
             table_name=BASE_DASHBOARD_TABLE,
-            country= COUNTRY,
+            country=COUNTRY,
             province=adm_level1,
             year=POPULATION_YEAR,
             central_lat=centroid.y,
