@@ -154,7 +154,7 @@ out center;
 """
         session = _get_retry_session()
         response = session.get(
-            "http://overpass-api.de/api/interpreter",
+            "https://overpass-api.de/api/interpreter",
             params={"data": query},
             timeout=900,
             headers={"User-Agent": "PIA-Pipeline/1.0"},
@@ -205,12 +205,6 @@ out center;
         )
     print(f"  Total facilities extracted (pre-boundary filter): {len(df_health)}")
     
-    # df_health = (
-    #     _query_osm_all_tiers(iso_2)
-    #     .drop_duplicates(subset="osm_id")
-    #     .reset_index(drop=True)
-    # )
-    # print(f"  Total facilities extracted (pre-boundary filter): {len(df_health)}")
 
     # -------------------------------------------------------------------------
     # UNCHANGED: everything below this line is identical to your original code.
