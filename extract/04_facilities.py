@@ -91,6 +91,7 @@ def new_extract_health_facilities_osm(
     selected_boundary: gpd.GeoDataFrame,
     adm_level_name: str = "AOI",
     force: bool = False,
+    country_raw_table: str = None,
 ) -> pd.DataFrame:
     """
     Queries OSM Overpass API for hospitals and clinics.
@@ -191,13 +192,25 @@ out center;
 
         return pd.DataFrame(rows, columns=["osm_id", "lat", "lon", "name"])
 
-    print(f"Querying OSM for all health facilities in {iso_2} (multi-tier query)...")
-    df_health = (
-        _query_osm_all_tiers(iso_2)
-        .drop_duplicates(subset="osm_id")
-        .reset_index(drop=True)
-    )
+    # --- Country-level raw OSM cache (pre-boundary-filter) ---
+    if country_raw_table and not force and table_exists(country_raw_table):
+        print(f"Loading cached country-level OSM data from: {country_raw_table}")
+        df_health = spark.table(country_raw_table).select("osm_id", "lat", "lon", "name").toPandas()
+    else:
+        print(f"Querying OSM for all health facilities in {iso_2} (multi-tier query)...")
+        df_health = (
+            _query_osm_all_tiers(iso_2)
+            .drop_duplicates(subset="osm_id")
+            .reset_index(drop=True)
+        )
     print(f"  Total facilities extracted (pre-boundary filter): {len(df_health)}")
+    
+    # df_health = (
+    #     _query_osm_all_tiers(iso_2)
+    #     .drop_duplicates(subset="osm_id")
+    #     .reset_index(drop=True)
+    # )
+    # print(f"  Total facilities extracted (pre-boundary filter): {len(df_health)}")
 
     # -------------------------------------------------------------------------
     # UNCHANGED: everything below this line is identical to your original code.
@@ -379,6 +392,7 @@ print(f"Will process {len(regions_to_process)} region(s): {regions_to_process}")
 # COMMAND ----------
 
 # EXECUTE TASK: Extract facilities per region
+country_raw_table = get_table_names(COUNTRY, ISO_3, None, POPULATION_YEAR)["facilities"]
 
 extraction_results = []
 
@@ -410,6 +424,7 @@ for adm_level1 in regions_to_process:
             selected_boundary=selected_boundary_gdf,
             adm_level_name=adm_level1 if adm_level1 else "Country",
             force=FORCE_RECOMPUTE,
+            country_raw_table=country_raw_table,
         )
     elif FACILITIES_SOURCE == "file":
         if FACILITIES_INPUT_PATH is None:
