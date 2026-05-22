@@ -200,6 +200,36 @@ class TestSolveMclpGreedy:
         results = solve_mclp_greedy({}, {}, [], [], max_new_facilities=5)
         assert results == []
 
+    def test_solve_mclp_greedy_already_fully_covered():
+        """
+        When a province already has 100% coverage, the greedy loop finds no improvement
+        and previously returned an empty list, causing downstream iloc[-1] errors.
+
+        The fix adds a p=0 baseline entry so results is never empty.
+        The frontend discards this row since it adds no facility value.
+        """
+        # Simulate full coverage: every demand H3 cell is already covered
+        # by an existing facility — so the optimizer has nothing to add
+        covered_h3 = ["h3_cell_1", "h3_cell_2", "h3_cell_3"]
+
+        result = solve_mclp_greedy(
+            demand_h3=covered_h3,          # all demand cells
+            facility_h3=covered_h3,        # existing facilities cover everything
+            existing_h3=covered_h3,        # already covered set
+            p_max=5,
+            distance_threshold_km=10,
+        )
+
+        # Must never be empty — p=0 baseline guards against downstream errors
+        assert len(result) > 0, "Results must not be empty even at 100% coverage"
+
+        # First entry must be the p=0 baseline
+        first = result[0]
+        assert first["p"] == 0
+        assert first["objective"] == 0.0
+        assert first["selected_facilities"] == []
+        assert first["covered_h3"] == []
+
 
 class TestDeduplicateColumns:
     """Tests for deduplicate_columns function."""
