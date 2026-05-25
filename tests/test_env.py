@@ -61,7 +61,7 @@ class TestLocalStorageBackend:
     def test_table_to_path_conversion(self):
         """Test table name to path conversion."""
         path = self.backend._table_to_path("catalog.schema.table", ".csv")
-        assert str(path).endswith("catalog/schema/table.csv")
+        assert path.as_posix().endswith("catalog/schema/table.csv")
 
     def test_table_exists_false(self):
         """Test table_exists returns False for non-existent table."""
