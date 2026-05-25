@@ -85,7 +85,7 @@ spark = get_spark()
 
 # COMMAND ----------
 
-def new_extract_health_facilities_osm(
+def extract_health_facilities_osm(
     iso_2: str,
     table_name: str,
     selected_boundary: gpd.GeoDataFrame,
@@ -195,6 +195,10 @@ out center;
     # --- Country-level raw OSM cache (pre-boundary-filter) ---
     if country_raw_table and not force and table_exists(country_raw_table):
         print(f"Loading cached country-level OSM data from: {country_raw_table}")
+        
+        # Once country-level extractions are already done, call them directly from the table to avoid re-running for province level
+        # From the country-level data, we can filter out the province-level data.
+        # Country-level OSM extract cached in UC; filter to province AOI boundary rather than re-querying Overpass.
         df_health = spark.table(country_raw_table).select("osm_id", "lat", "lon", "name").toPandas()
     else:
         print(f"Querying OSM for all health facilities in {iso_2} (multi-tier query)...")
@@ -240,7 +244,6 @@ out center;
         lambda geom: geom.wkt if geom is not None else None
     )
     selected_health_pdf = selected_health_pdf.drop(columns=["geometry"])
-    print(selected_health_pdf.columns)
     selected_health_pdf = selected_health_pdf.rename(columns={
         "id": "osm_id",
     })
@@ -249,101 +252,6 @@ out center;
     return selected_health_pdf
 
 # COMMAND ----------
-
-def extract_health_facilities_osm(
-    iso_2: str,
-    table_name: str,
-    selected_boundary: gpd.GeoDataFrame,
-    adm_level_name: str = "AOI",
-    force: bool = False,
-) -> pd.DataFrame:
-    """
-    Queries OSM Overpass API for hospitals and clinics.
-    Saves to UC table and returns DataFrame.
-    """
-    if not force and table_exists(table_name):
-        print(f"OSM facilities already exist, loading: {table_name}")
-        return spark.table(table_name).toPandas()
-
-    def query_osm_amenity(amenity: str) -> pd.DataFrame:
-        query = f"""
-        [out:json];
-        area["ISO3166-1:alpha2"="{iso_2}"];
-        (
-          node["amenity"="{amenity}"](area);
-          way["amenity"="{amenity}"](area);
-          rel["amenity"="{amenity}"](area);
-        );
-        out center;
-        """
-        session = _get_retry_session()
-        response = session.get(
-            "http://overpass-api.de/api/interpreter",
-            params={"data": query},
-            timeout=220,
-            headers={"User-Agent": "PIA-Pipeline/1.0"},
-        )
-        response.raise_for_status()
-        elements = response.json()["elements"]
-        df = pd.DataFrame(elements)
-        if df.empty:
-            return pd.DataFrame(columns=["osm_id", "lat", "lon", "name"])
-        df["name"] = df["tags"].apply(lambda x: x.get("name") if isinstance(x, dict) else None)
-        df = df.rename(columns={"id": "osm_id"})
-        return df[["osm_id", "lat", "lon", "name"]].dropna(subset=["lat", "lon"])
-
-    print(f"Querying OSM for hospitals in {iso_2}...")
-    df_hospitals = query_osm_amenity("hospital")
-    print(f"  Hospitals: {len(df_hospitals)}")
-
-    print(f"Querying OSM for clinics in {iso_2}...")
-    df_clinics = query_osm_amenity("clinic")
-    print(f"  Clinics: {len(df_clinics)}")
-
-    df_health = (
-        pd.concat([df_hospitals, df_clinics])
-        .drop_duplicates(subset="osm_id")
-        .reset_index(drop=True)
-    )
-    gdf_health = gpd.GeoDataFrame(
-        df_health,
-        geometry=gpd.points_from_xy(df_health.lon, df_health.lat),
-        crs="EPSG:4326"
-    )
-
-    # Reproject and spatial join
-    gdf_health = gdf_health.to_crs(selected_boundary.crs)
-    selected_health = gpd.sjoin(gdf_health, selected_boundary, predicate='within')
-    selected_health = selected_health.reset_index().reset_index()
-    selected_health['ID'] = selected_health['level_0'].astype(str)+'_current'
-
-    print(f"Number of hospitals and clinics extracted: {len(gdf_health)}")
-    
-    print(f"Number of facilities in AOI ({adm_level_name}): {len(selected_health)}")
-    if selected_health.empty:
-        print(
-            f"WARNING: No facilities found within the AOI boundary for {adm_level_name}. "
-            "Check that selected_boundary CRS matches the OSM data, or that the ISO-2 "
-            "code corresponds to the correct boundary."
-        )
-        return pd.DataFrame()
-    
-    selected_health = selected_health.loc[:, ~selected_health.columns.duplicated()]
-
-    # Convert geometry to WKT string before writing to Spark
-    selected_health_pdf = selected_health.copy()
-    selected_health_pdf["geometry_wkt"] = selected_health_pdf["geometry"].apply(
-        lambda geom: geom.wkt if geom is not None else None
-    )
-    selected_health_pdf = selected_health_pdf.drop(columns=["geometry"])
-    print(selected_health_pdf.columns)
-    selected_health_pdf = selected_health_pdf.rename(columns={
-        "id": "osm_id",
-    })
-
-    pdf_to_uc_table(selected_health_pdf, table_name)
-    return selected_health_pdf
-
 
 def extract_existing_facilities(
     input_path: str,
@@ -412,7 +320,7 @@ for adm_level1 in regions_to_process:
 
     # Extract facilities
     if FACILITIES_SOURCE == "osm":
-        new_extract_health_facilities_osm(
+        extract_health_facilities_osm(
             iso_2=ISO_2,
             table_name=facilities_table,
             selected_boundary=selected_boundary_gdf,

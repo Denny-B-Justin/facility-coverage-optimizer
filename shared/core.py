@@ -4,6 +4,7 @@
 
 import re
 import numpy as np
+import unicodedata
 
 # H3 resolution edge lengths in meters
 H3_EDGE_LENGTH_M = {4: 22606, 5: 8544, 6: 3229, 7: 1220, 8: 461, 9: 174, 10: 66}
@@ -47,6 +48,31 @@ def sanitize_col_name(name: str) -> str:
     s = s.strip("_")
     return f"lgu_{s}"
 
+def _sanitize_adm_name(name: str) -> str:
+    """
+    Converts an admin level-1 name into a Delta-safe lowercase suffix token.
+
+    Rules applied (in order):
+      1. Strip leading/trailing whitespace
+      2. Normalize Unicode (NFKD) and drop accent characters
+      3. Lowercase
+      4. Replace any character that is not alphanumeric or underscore with underscore
+      5. Collapse consecutive underscores to a single one
+      6. Strip leading/trailing underscores
+
+    Examples:
+      "Eastern"         → "eastern"
+      "North-West"      → "north_west"
+      "Côte-d'Ivoire"   → "cote_d_ivoire"
+      "North/South"     → "north_south"
+    """
+    s = name.strip()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9_]", "_", s)
+    s = re.sub(r"_+", "_", s)
+    return s.strip("_")
 
 def get_extract_table_names(
     catalog: str,
@@ -71,7 +97,7 @@ def get_extract_table_names(
         Dictionary of table names for boundaries, population, facilities, lgu
     """
     if adm_level1 is not None:
-        adm_suffix = f"_{adm_level1.lower().replace('-', '_').replace(' ', '_')}_province"
+        adm_suffix = f"_{_sanitize_adm_name(adm_level1)}_province"
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "population": f"{catalog}.{schema}.population_{iso3.lower()}_{population_year}{adm_suffix}",
@@ -114,7 +140,7 @@ def get_transform_table_names(
     distance_name = f"{int(distance_meters / 1000)}km"
 
     if adm_level1 is not None:
-        adm_suffix = f"_{adm_level1.lower().replace('-', '_').replace(' ', '_')}_province"
+        adm_suffix = f"_{_sanitize_adm_name(adm_level1)}_province"
         return {
             "boundaries": f"{catalog}.{schema}.wb_boundaries_{iso3.lower()}{adm_suffix}",
             "facilities": f"{catalog}.{schema}.health_facilities_{iso3.lower()}_osm{adm_suffix}",
@@ -185,7 +211,9 @@ def solve_mclp_greedy(
         max_new_facilities: Maximum number of new facilities to add
 
     Returns:
-        List of results for p=1..max_new_facilities, each containing:
+        List of results for p=0..max_new_facilities, where index 0 is a
+        baseline row representing coverage from existing facilities only
+        (no new facilities added). Each entry contains:
         - p: number of new facilities added
         - objective: total population covered
         - selected_facilities: list of all selected facility IDs
@@ -210,9 +238,9 @@ def solve_mclp_greedy(
 
     results = [{
         "p": 0,
-        "objective": 0.0,
-        "selected_facilities": [],
-        "covered_h3": [],
+        "objective": current_coverage,
+        "selected_facilities": list(selected),
+        "covered_h3": list(covered_h3),
     }]
     
     candidates = set(J_potential) - selected

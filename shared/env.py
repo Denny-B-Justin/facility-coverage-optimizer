@@ -186,8 +186,10 @@ class LocalStorageBackend:
                 print(f"Empty DataFrame, existing file unchanged: {path}")
                 return
             # Write only the header (or an empty file if header already present)
-            pdf.to_csv(path, mode="w" if mode == "overwrite" else "a",
-                       header=not path.exists(), index=False)
+            if mode == "overwrite":
+                pdf.to_csv(path, mode="w", header=True, index=False)
+            else:  # append
+                pdf.to_csv(path, mode="a", header=not path.exists(), index=False)
             print(f"Empty DataFrame saved (header only): {path}")
             return
 

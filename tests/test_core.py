@@ -198,38 +198,37 @@ class TestSolveMclpGreedy:
 
     def test_empty_inputs(self):
         results = solve_mclp_greedy({}, {}, [], [], max_new_facilities=5)
-        assert results == []
+        assert results == [
+            {
+                "p": 0,
+                "objective": 0.0,
+                "selected_facilities": [],
+                "covered_h3": [],
+            }
+        ]
 
-    def test_solve_mclp_greedy_already_fully_covered():
-        """
-        When a province already has 100% coverage, the greedy loop finds no improvement
-        and previously returned an empty list, causing downstream iloc[-1] errors.
-
-        The fix adds a p=0 baseline entry so results is never empty.
-        The frontend discards this row since it adds no facility value.
-        """
-        # Simulate full coverage: every demand H3 cell is already covered
-        # by an existing facility — so the optimizer has nothing to add
-        covered_h3 = ["h3_cell_1", "h3_cell_2", "h3_cell_3"]
-
+    def test_solve_mclp_greedy_already_fully_covered(self):
+        w = {"h3_cell_1": 100.0, "h3_cell_2": 200.0, "h3_cell_3": 150.0}
+        IJ = {
+            "h3_cell_1": ["fac_existing"],
+            "h3_cell_2": ["fac_existing"],
+            "h3_cell_3": ["fac_existing"],
+        }
         result = solve_mclp_greedy(
-            demand_h3=covered_h3,          # all demand cells
-            facility_h3=covered_h3,        # existing facilities cover everything
-            existing_h3=covered_h3,        # already covered set
-            p_max=5,
-            distance_threshold_km=10,
+            w=w,
+            IJ=IJ,
+            J_existing=["fac_existing"],
+            J_potential=[],           # no candidates → greedy loop exits immediately
+            max_new_facilities=5,
         )
+        # Sentinel guarantees at least one row even at 100% coverage
+        assert len(result) > 0
 
-        # Must never be empty — p=0 baseline guards against downstream errors
-        assert len(result) > 0, "Results must not be empty even at 100% coverage"
-
-        # First entry must be the p=0 baseline
         first = result[0]
         assert first["p"] == 0
-        assert first["objective"] == 0.0
-        assert first["selected_facilities"] == []
-        assert first["covered_h3"] == []
-
+        assert first["objective"] == 450.0    # full baseline coverage
+        assert first["selected_facilities"] == ["fac_existing"]
+        assert set(first["covered_h3"]) == {"h3_cell_1", "h3_cell_2", "h3_cell_3"}
 
 class TestDeduplicateColumns:
     """Tests for deduplicate_columns function."""

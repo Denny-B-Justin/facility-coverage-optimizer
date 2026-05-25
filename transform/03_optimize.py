@@ -278,10 +278,7 @@ for adm_level1, distance_meters in transform_combinations:
         result_rows = []
 
         for idx, step in enumerate(pareto_results):
-            if step["p"] == 0:
-                continue
-
-            p = step["p"] - 1
+            p = step["p"]
             covered_h3_set = set(step["covered_h3"])
 
             # Identify the single new facility added in this step
@@ -354,12 +351,6 @@ for adm_level1, distance_meters in transform_combinations:
                 f"({int(first['total_facilities']) - n_existing} new facilities needed)."
             )
         else:
-            try:
-                last = result_pdf.iloc[-1]
-            except IndexError:
-                print(f"Skipping {adm_level1} @ {distance_meters}")
-                continue
-
             below = [
                 lgu_raw for lgu_raw, safe in name_map.items()
                 if last[safe] < TARGET_ACCESS_RATE_PCT
@@ -423,27 +414,20 @@ for adm_level1, distance_meters in transform_combinations:
         boundaries_sdf = spark.table(tables["boundaries"])
         boundary_row = boundaries_sdf.select("geometry_wkt").limit(1).collect()
         
-        boundry_basetable = boundary_row[0]["geometry_wkt"] if boundary_row else None
+        boundary_aoi = boundary_row[0]["geometry_wkt"]
         
         # Parse WKT string → Shapely geometry, then get centroid
-        geometry = shapely_wkt.loads(boundry_basetable)
+        geometry = shapely_wkt.loads(boundary_aoi)
         centroid = geometry.centroid
         print(f"Centroid: x={centroid.x}, y={centroid.y}")
-        boundary_row = boundaries_sdf.select("geometry_wkt").limit(1).collect()
 
-        boundry_basetable = boundary_row[0]["geometry_wkt"] if boundary_row else None
-
-        # Read current access from first row of results
-        try:
-            # Find the first row where the new_facility identifier ends with "_current"
-            mask = result_pdf["new_facility"].astype(str).str.endswith("_current")
-            if mask.any():
-                first_row = result_pdf[mask].iloc[0]
-            else:
-                first_row = result_pdf.iloc[0]
-        except IndexError:
-            print(f"Skipped {adm_level1} @ {distance_meters}")
-            continue
+        # Find the first row where the new_facility identifier ends with "_current"
+        mask = result_pdf["new_facility"].astype(str).str.endswith("_current")
+        if mask.any():
+            first_row = result_pdf[mask].iloc[0]
+        else:
+            first_row = result_pdf.iloc[0]
+        
         current_access_pct = float(first_row["total_population_access_pct"])
         distance_km = int(distance_meters / 1000)
 
@@ -460,7 +444,7 @@ for adm_level1, distance_meters in transform_combinations:
             distance_km=distance_km,
             total_new_facilities=len(result_pdf) - 1,
             current_access=round(current_access_pct, 2),
-            geometry_wkt=boundry_basetable,
+            geometry_wkt=boundary_aoi,
             first_write=first_combination,
         )
 

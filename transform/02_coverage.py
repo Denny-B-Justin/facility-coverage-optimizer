@@ -92,7 +92,7 @@ def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution:
         F.sum("population").alias("pop_with_access")
     )
 
-    # Join back to facilities
+    # pop_with_access survives prior writes; drop before re-join to avoid duplicate-column conflict on re-run
     result_sdf = facilities_sdf.drop("pop_with_access").join(
         facility_coverage_sdf.withColumnRenamed("facility_ID", "ID"),
         on="ID",
@@ -223,10 +223,6 @@ for adm_level1, distance_meters in transform_combinations:
     print(f"  Maximum access attainable: {max_access_possible}%")
 
     print(f"\n  Completed: {region_name} @ {distance_name}")
-
-# COMMAND ----------
-
-display(population_aoi_sdf)
 
 # COMMAND ----------
 
