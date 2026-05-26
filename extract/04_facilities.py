@@ -96,6 +96,12 @@ def extract_health_facilities_osm(
     """
     Queries OSM Overpass API for hospitals and clinics.
     Saves to UC table and returns DataFrame.
+
+    Note on caching: when ``country_raw_table`` is provided, this function only
+    *reads* the pre-boundary-filter cache; it does not populate it. The cache
+    is warmed as a side effect of a country-level run (where ``table_name``
+    happens to equal ``country_raw_table``), so the intended operator workflow
+    is to run with ``adm_level1=None`` once before iterating over provinces.
     """
     if not force and table_exists(table_name):
         print(f"OSM facilities already exist, loading: {table_name}")

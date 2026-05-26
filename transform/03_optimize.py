@@ -325,10 +325,16 @@ for adm_level1, distance_meters in transform_combinations:
                 row[safe_col] = round(covered * 100.0 / total, 2) if total > 0 else 0.0
 
             result_rows.append(row)
-            print(
-                f"  Step {p:3d} | +1 facility ({new_fac_id}) "
-                f"-> national {national_access_pct:.2f}%"
-            )
+            if new_fac_id is None:
+                print(
+                    f"  Step {p:3d} | baseline (existing facilities) "
+                    f"-> national {national_access_pct:.2f}%"
+                )
+            else:
+                print(
+                    f"  Step {p:3d} | +1 facility ({new_fac_id}) "
+                    f"-> national {national_access_pct:.2f}%"
+                )
 
         # Check how many facilities are needed to reach TARGET for all LGUs
         result_pdf = pd.DataFrame(result_rows)
@@ -351,6 +357,7 @@ for adm_level1, distance_meters in transform_combinations:
                 f"({int(first['total_facilities']) - n_existing} new facilities needed)."
             )
         else:
+            last = result_pdf.iloc[-1]
             below = [
                 lgu_raw for lgu_raw, safe in name_map.items()
                 if last[safe] < TARGET_ACCESS_RATE_PCT
