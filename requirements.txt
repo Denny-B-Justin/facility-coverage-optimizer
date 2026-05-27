@@ -1,0 +1,8 @@
+plotly 
+folium
+geopandas
+shapely
+scikit-learn
+numpy
+pytest
+pyspark

@@ -175,9 +175,23 @@ class LocalStorageBackend:
         return gpd.read_file(path)
 
     def save_pdf(self, pdf: pd.DataFrame, table_name: str, mode: str = "overwrite") -> None:
-        """Save pandas DataFrame as CSV file."""
+        """Save pandas DataFrame as CSV file, creating the file even if the DataFrame is empty."""
         path = self._table_to_path(table_name, ".csv")
         path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Ensure a file (with header) is created even when the DataFrame is empty
+        if pdf.empty:
+            # For append mode, only create the file if it doesn't already exist
+            if mode == "append" and path.exists():
+                print(f"Empty DataFrame, existing file unchanged: {path}")
+                return
+            # Write only the header (or an empty file if header already present)
+            if mode == "overwrite":
+                pdf.to_csv(path, mode="w", header=True, index=False)
+            else:  # append
+                pdf.to_csv(path, mode="a", header=not path.exists(), index=False)
+            print(f"Empty DataFrame saved (header only): {path}")
+            return
 
         if mode == "overwrite" or not path.exists():
             pdf.to_csv(path, index=False)

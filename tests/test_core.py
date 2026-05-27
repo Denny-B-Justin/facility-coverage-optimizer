@@ -157,17 +157,20 @@ class TestSolveMclpGreedy:
 
         results = solve_mclp_greedy(w, IJ, J_existing, J_potential, max_new_facilities=2)
 
-        assert len(results) == 2
+        assert len(results) == 3
         # First facility should cover most population
         # fac_A covers h3_1 (100) + h3_2 (200) = 300
         # fac_B covers h3_2 (200) + h3_3 (150) = 350
-        assert results[0]["p"] == 1
-        assert "fac_B" in results[0]["selected_facilities"]
-        assert results[0]["objective"] == 350
+        assert results[0]["p"] == 0
+        assert results[0]["objective"] == 0
+
+        assert results[1]["p"] == 1
+        assert "fac_B" in results[1]["selected_facilities"]
+        assert results[1]["objective"] == 350
 
         # Second facility adds remaining coverage
-        assert results[1]["p"] == 2
-        assert results[1]["objective"] == 450  # All cells covered
+        assert results[2]["p"] == 2
+        assert results[2]["objective"] == 450  # All cells covered
 
     def test_with_existing_facilities(self):
         w = {"h3_1": 100, "h3_2": 200, "h3_3": 150}
@@ -183,7 +186,12 @@ class TestSolveMclpGreedy:
 
         # Existing facility covers h3_1 (100), so initial coverage is 100
         # Adding fac_B gives h3_2 (200) + h3_3 (150) = 350 more
-        assert results[0]["objective"] == 100 + 350  # 450
+        # p=0 baseline reflects existing facility coverage: h3_1 = 100
+        assert results[0]["p"] == 0
+        assert results[0]["objective"] == 100
+
+        # First greedy step adds fac_B: h3_2 (200) + h3_3 (150) = 350 more → total 450
+        assert results[1]["objective"] == 100 + 350  # 450
 
     def test_no_improvement_possible(self):
         w = {"h3_1": 100}
@@ -193,13 +201,44 @@ class TestSolveMclpGreedy:
 
         results = solve_mclp_greedy(w, IJ, J_existing, J_potential, max_new_facilities=5)
 
-        # No results because fac_A provides no additional coverage
-        assert len(results) == 0
+        # Only the p=0 baseline is returned; fac_A adds nothing
+        assert len(results) == 1
+        assert results[0]["p"] == 0
+        assert results[0]["objective"] == 100  # existing facility already covers h3_1
 
     def test_empty_inputs(self):
         results = solve_mclp_greedy({}, {}, [], [], max_new_facilities=5)
-        assert results == []
+        assert results == [
+            {
+                "p": 0,
+                "objective": 0.0,
+                "selected_facilities": [],
+                "covered_h3": [],
+            }
+        ]
 
+    def test_solve_mclp_greedy_already_fully_covered(self):
+        w = {"h3_cell_1": 100.0, "h3_cell_2": 200.0, "h3_cell_3": 150.0}
+        IJ = {
+            "h3_cell_1": ["fac_existing"],
+            "h3_cell_2": ["fac_existing"],
+            "h3_cell_3": ["fac_existing"],
+        }
+        result = solve_mclp_greedy(
+            w=w,
+            IJ=IJ,
+            J_existing=["fac_existing"],
+            J_potential=[],           # no candidates → greedy loop exits immediately
+            max_new_facilities=5,
+        )
+        # Sentinel guarantees at least one row even at 100% coverage
+        assert len(result) > 0
+
+        first = result[0]
+        assert first["p"] == 0
+        assert first["objective"] == 450.0    # full baseline coverage
+        assert first["selected_facilities"] == ["fac_existing"]
+        assert set(first["covered_h3"]) == {"h3_cell_1", "h3_cell_2", "h3_cell_3"}
 
 class TestDeduplicateColumns:
     """Tests for deduplicate_columns function."""

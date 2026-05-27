@@ -92,8 +92,8 @@ def _compute_coverage_h3_internal(facilities_sdf, population_sdf, h3_resolution:
         F.sum("population").alias("pop_with_access")
     )
 
-    # Join back to facilities
-    result_sdf = facilities_sdf.join(
+    # pop_with_access survives prior writes; drop before re-join to avoid duplicate-column conflict on re-run
+    result_sdf = facilities_sdf.drop("pop_with_access").join(
         facility_coverage_sdf.withColumnRenamed("facility_ID", "ID"),
         on="ID",
         how="left"
@@ -128,7 +128,7 @@ def compute_coverage_h3(
     result_sdf, flat_sdf = _compute_coverage_h3_internal(
         facilities_sdf, population_sdf, h3_resolution, k_rings
     )
-
+    print("Computing coverage: done")
     # Save to UC tables
     result_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(facilities_output_table)
     flat_sdf.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(coverage_output_table)

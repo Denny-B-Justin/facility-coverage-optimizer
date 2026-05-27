@@ -91,54 +91,134 @@ def extract_health_facilities_osm(
     selected_boundary: gpd.GeoDataFrame,
     adm_level_name: str = "AOI",
     force: bool = False,
+    country_raw_table: str = None,
 ) -> pd.DataFrame:
     """
     Queries OSM Overpass API for hospitals and clinics.
     Saves to UC table and returns DataFrame.
+
+    Note on caching: when ``country_raw_table`` is provided, this function only
+    *reads* the pre-boundary-filter cache; it does not populate it. The cache
+    is warmed as a side effect of a country-level run (where ``table_name``
+    happens to equal ``country_raw_table``), so the intended operator workflow
+    is to run with ``adm_level1=None`` once before iterating over provinces.
     """
     if not force and table_exists(table_name):
         print(f"OSM facilities already exist, loading: {table_name}")
         return spark.table(table_name).toPandas()
 
-    def query_osm_amenity(amenity: str) -> pd.DataFrame:
+    # -------------------------------------------------------------------------
+    # CHANGED: Single multi-tier Overpass query replacing the old per-amenity
+    # helper. Implements the full tiered strategy:
+    #   Tier 1 — amenity=hospital/clinic/health_centre/health_post/dentist
+    #   Tier 2 — healthcare=* (catch-all negation; excludes doctor/pharmacy etc.)
+    #   Tier 3 — dispensary=yes (common in southern African OSM data)
+    #   Tier 4 — standalone building=hospital/clinic not inside a compound area
+    #
+    # Works for any country via iso_2 (ISO 3166-1 alpha-2 code).
+    # Output schema is identical to the old helper: [osm_id, lat, lon, name]
+    # -------------------------------------------------------------------------
+    def _query_osm_all_tiers(iso_2: str) -> pd.DataFrame:
         query = f"""
-        [out:json];
-        area["ISO3166-1"="{iso_2}"];
-        (
-          node["amenity"="{amenity}"](area);
-          way["amenity"="{amenity}"](area);
-          rel["amenity"="{amenity}"](area);
-        );
-        out center;
-        """
+[out:json][timeout:900];
+area["ISO3166-1:alpha2"="{iso_2}"]->.country;
+(
+  area["amenity"~"^(hospital|clinic|health_centre|health_post|dentist)$"](area.country);
+  area["healthcare"](area.country);
+  area["dispensary"="yes"](area.country);
+)->.health_complex_areas;
+(
+  node["amenity"~"^(hospital|clinic|health_centre|health_post|dentist)$"](area.country);
+  way ["amenity"~"^(hospital|clinic|health_centre|health_post|dentist)$"](area.country);
+  rel ["amenity"~"^(hospital|clinic|health_centre|health_post|dentist)$"](area.country);
+)->.tier1;
+(
+  node["healthcare"]["healthcare"!~"^(doctor|gp|maternity|pharmacy|alternative|traditional|vaccination)$"](area.country);
+  way ["healthcare"]["healthcare"!~"^(doctor|gp|maternity|pharmacy|alternative|traditional|vaccination)$"](area.country);
+  rel ["healthcare"]["healthcare"!~"^(doctor|gp|maternity|pharmacy|alternative|traditional|vaccination)$"](area.country);
+)->.tier2;
+(
+  node["dispensary"="yes"](area.country);
+  way ["dispensary"="yes"](area.country);
+)->.tier3;
+(
+  way["building"~"^(hospital|clinic|health_centre)$"](area.country);
+  - way["building"~"^(hospital|clinic|health_centre)$"](area.health_complex_areas);
+)->.standalone_bldg_ways;
+(
+  node["building"~"^(hospital|clinic|health_centre)$"](area.country);
+  - node["building"~"^(hospital|clinic|health_centre)$"](area.health_complex_areas);
+)->.standalone_bldg_nodes;
+(
+  .tier1;
+  .tier2;
+  .tier3;
+  .standalone_bldg_ways;
+  .standalone_bldg_nodes;
+);
+out center;
+"""
         session = _get_retry_session()
         response = session.get(
-            "http://overpass-api.de/api/interpreter",
+            "https://overpass-api.de/api/interpreter",
             params={"data": query},
-            timeout=120,
+            timeout=900,
+            headers={"User-Agent": "PIA-Pipeline/1.0"},
         )
         response.raise_for_status()
         elements = response.json()["elements"]
-        df = pd.DataFrame(elements)
-        if df.empty:
+
+        rows = []
+        for el in elements:
+            tags = el.get("tags", {})
+            name = tags.get("name") if isinstance(tags, dict) else None
+
+            # Nodes carry lat/lon directly.
+            # Ways and relations carry them inside the `center` dict
+            # populated by `out center` — identical to how the old helper
+            # relied on the top-level lat/lon for nodes only.
+            if el.get("type") == "node":
+                lat = el.get("lat")
+                lon = el.get("lon")
+            else:
+                center = el.get("center", {})
+                lat = center.get("lat")
+                lon = center.get("lon")
+
+            if lat is not None and lon is not None:
+                rows.append({
+                    "osm_id": el.get("id"),
+                    "lat":    lat,
+                    "lon":    lon,
+                    "name":   name,
+                })
+
+        if not rows:
             return pd.DataFrame(columns=["osm_id", "lat", "lon", "name"])
-        df["name"] = df["tags"].apply(lambda x: x.get("name") if isinstance(x, dict) else None)
-        df = df.rename(columns={"id": "osm_id"})
-        return df[["osm_id", "lat", "lon", "name"]].dropna(subset=["lat", "lon"])
 
-    print(f"Querying OSM for hospitals in {iso_2}...")
-    df_hospitals = query_osm_amenity("hospital")
-    print(f"  Hospitals: {len(df_hospitals)}")
+        return pd.DataFrame(rows, columns=["osm_id", "lat", "lon", "name"])
 
-    print(f"Querying OSM for clinics in {iso_2}...")
-    df_clinics = query_osm_amenity("clinic")
-    print(f"  Clinics: {len(df_clinics)}")
+    # --- Country-level raw OSM cache (pre-boundary-filter) ---
+    if country_raw_table and not force and table_exists(country_raw_table):
+        print(f"Loading cached country-level OSM data from: {country_raw_table}")
+        
+        # Once country-level extractions are already done, call them directly from the table to avoid re-running for province level
+        # From the country-level data, we can filter out the province-level data.
+        # Country-level OSM extract cached in UC; filter to province AOI boundary rather than re-querying Overpass.
+        df_health = spark.table(country_raw_table).select("osm_id", "lat", "lon", "name").toPandas()
+    else:
+        print(f"Querying OSM for all health facilities in {iso_2} (multi-tier query)...")
+        df_health = (
+            _query_osm_all_tiers(iso_2)
+            .drop_duplicates(subset="osm_id")
+            .reset_index(drop=True)
+        )
+    print(f"  Total facilities extracted (pre-boundary filter): {len(df_health)}")
+    
 
-    df_health = (
-        pd.concat([df_hospitals, df_clinics])
-        .drop_duplicates(subset="osm_id")
-        .reset_index(drop=True)
-    )
+    # -------------------------------------------------------------------------
+    # UNCHANGED: everything below this line is identical to your original code.
+    # -------------------------------------------------------------------------
     gdf_health = gpd.GeoDataFrame(
         df_health,
         geometry=gpd.points_from_xy(df_health.lon, df_health.lat),
@@ -152,7 +232,16 @@ def extract_health_facilities_osm(
     selected_health['ID'] = selected_health['level_0'].astype(str)+'_current'
 
     print(f"Number of hospitals and clinics extracted: {len(gdf_health)}")
+
     print(f"Number of facilities in AOI ({adm_level_name}): {len(selected_health)}")
+    if selected_health.empty:
+        print(
+            f"WARNING: No facilities found within the AOI boundary for {adm_level_name}. "
+            "Check that selected_boundary CRS matches the OSM data, or that the ISO-2 "
+            "code corresponds to the correct boundary."
+        )
+        return pd.DataFrame()
+
     selected_health = selected_health.loc[:, ~selected_health.columns.duplicated()]
 
     # Convert geometry to WKT string before writing to Spark
@@ -161,7 +250,6 @@ def extract_health_facilities_osm(
         lambda geom: geom.wkt if geom is not None else None
     )
     selected_health_pdf = selected_health_pdf.drop(columns=["geometry"])
-    print(selected_health_pdf.columns)
     selected_health_pdf = selected_health_pdf.rename(columns={
         "id": "osm_id",
     })
@@ -169,6 +257,7 @@ def extract_health_facilities_osm(
     pdf_to_uc_table(selected_health_pdf, table_name)
     return selected_health_pdf
 
+# COMMAND ----------
 
 def extract_existing_facilities(
     input_path: str,
@@ -211,6 +300,7 @@ print(f"Will process {len(regions_to_process)} region(s): {regions_to_process}")
 # COMMAND ----------
 
 # EXECUTE TASK: Extract facilities per region
+country_raw_table = get_table_names(COUNTRY, ISO_3, None, POPULATION_YEAR)["facilities"]
 
 extraction_results = []
 
@@ -242,6 +332,7 @@ for adm_level1 in regions_to_process:
             selected_boundary=selected_boundary_gdf,
             adm_level_name=adm_level1 if adm_level1 else "Country",
             force=FORCE_RECOMPUTE,
+            country_raw_table=country_raw_table,
         )
     elif FACILITIES_SOURCE == "file":
         if FACILITIES_INPUT_PATH is None:

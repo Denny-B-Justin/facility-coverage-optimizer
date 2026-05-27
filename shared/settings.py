@@ -16,7 +16,7 @@ def _get_uc_schema() -> str:
 UC_SCHEMA = _get_uc_schema()
 
 # Country settings
-COUNTRY = "Zambia"
-ISO_2 = "ZM"
-ISO_3 = "ZMB"
+COUNTRY = "Uzbekistan"
+ISO_2 = "UZ"
+ISO_3 = "UZB"
 POPULATION_YEAR = 2025
