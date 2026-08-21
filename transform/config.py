@@ -18,6 +18,8 @@
 
 # Local imports (skipped in Databricks where %run loads modules)
 import os
+import re
+import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import (
         get_k_rings,
@@ -41,16 +43,41 @@ else:
 
 # COMMAND ----------
 
+def _sanitize_country_name(name: str) -> str:
+    s = name.strip()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9_]", "_", s)
+    s = re.sub(r"_+", "_", s)
+    return s.strip("_")
+
+
+# COMMAND ----------
+
+"""
+List of admin level 1 regions to process:
+ - []: all provinces (auto-discovered from UC)
+ 
+Malawi - "Central Region","Northern Region","Southern Region"
+India - ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 
+            'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal']
+
+Cambordia = ['Banteay Meanchey', 'Battambang', 'Kampong Cham', 'Kampong Speu', 'Kampong Thom', 'Kampot', 'Kandal', 'Kep', 
+            'Koh Kong', 'Kratie', 'Mondul Kiri', 'Oddar Meanchey', 'Pailin', 'Phnom Penh', 'Preah Sihanouk', 'Preah Vihear', 
+            'Prey Veng', 'Pursat', 'Ratanak Kiri', 'Siemreap', 'Svay Rieng', 'Takeo', 'Tboung Khmum'']
+"""
+# Chad = ['Barh el Ghazel', 'Batha', 'Borkou', 'Chari-Baguirmi', 'Hadjer-Lamis', 'Kanem', 'Lac', 'Logone Occidental', 'Logone Oriental', 'Mandoul', 'Mayo-Kebbi Est', 'Mayo-Kebbi Ouest', 'Moyen-Chari', 'Ouaddaï', 'Salamat', 'Sila', 'Tandjilé', "Ville de N'Djamena", 'Wadi Fira']
+
+# COMMAND ----------
+
 # CONFIGURATION
 
 # Include country-level (ADM0) processing
 INCLUDE_ADM_LEVEL0 = True
 
-# List of admin level 1 regions to process:
-#   - []: all provinces (auto-discovered from UC)
-#   - ["Northern", "Lusaka"]: specific provinces only
-ADM_LEVEL1_LIST = []
 
+ADM_LEVEL1_LIST = []
 # List of distances to analyze (in meters)
 DISTANCES_METERS = [2000, 4000, 5000, 10000]  # e.g., [5000, 10000] for 5km and 10km
 
@@ -77,7 +104,6 @@ BASE_DASHBOARD_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.base_dashboard_data_{COUNTRY_I
 # Visualization settings
 ENABLE_VISUALIZATION_DEFAULT = True
 VIZ_SAMPLE_SIZE = 5_000  # Max points per category for Folium maps
-
 
 def _get_enable_visualization() -> bool:
     """Get ENABLE_VISUALIZATION from dbutils widget or use default."""
@@ -111,7 +137,7 @@ def get_transform_table_names(
 def _get_adm_level1_names_from_uc() -> list[str]:
     """Discover province names from LGU boundary table in UC."""
     spark = get_spark()
-    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY.lower()}"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_country_name(COUNTRY)}"
     provinces_df = spark.sql(f"SELECT DISTINCT province FROM {lgu_table} ORDER BY province")
     provinces = [row.province for row in provinces_df.collect()]
     print(f"Discovered {len(provinces)} provinces from UC: {provinces}")

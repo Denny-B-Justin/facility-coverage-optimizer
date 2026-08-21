@@ -157,6 +157,11 @@ if skip_dashboard:
 for adm_level1, distance_meters in transform_combinations:
     print("\n" + "=" * 60)
     region_name = adm_level1 if adm_level1 else "Country"
+
+    # if region_name == "Country":
+    #     print(f"Skipping Country Compute for {COUNTRY}")
+    #     continue
+
     distance_name = f"{int(distance_meters / 1000)}km"
     print(f"COMPUTING: {region_name} @ {distance_name}")
     print("=" * 60)

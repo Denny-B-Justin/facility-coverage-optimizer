@@ -19,6 +19,8 @@
 # Local imports (skipped in Databricks where %run loads modules)
 import os
 import geopandas as gpd
+import re
+import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import get_extract_table_names
     from shared.env import file_exists
@@ -45,7 +47,9 @@ INCLUDE_ADM_LEVEL0 = True
 # List of admin level 1 regions to process:
 #   - []: all provinces (auto-discovered from WB boundaries)
 #   - ["Northern", "Lusaka"]: specific provinces only
-ADM_LEVEL1_LIST = []
+# For Malawi - "Central Region","Northern Region","Southern Region"
+
+ADM_LEVEL1_LIST = [] 
 
 # Health facilities data source: "osm" or "file"
 # - "osm": Query OpenStreetMap Overpass API for hospitals and clinics
@@ -67,10 +71,22 @@ WB_NAME_CORRECTIONS = {
 
 # COMMAND ----------
 
+def _sanitize_country_name(name: str) -> str:
+    s = name.strip()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9_]", "_", s)
+    s = re.sub(r"_+", "_", s)
+    return s.strip("_")
+
+
+# COMMAND ----------
+
 # DERIVED CONFIGURATION
 
 COUNTRY_POPULATION_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.population_{ISO_3.lower()}_{POPULATION_YEAR}"
-COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{COUNTRY.lower()}"
+COUNTRY_LGU_TABLE = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_country_name(COUNTRY)}"
 RASTER_PATH = f"{VOLUME_DIR}/worldpop_{ISO_3.lower()}_{POPULATION_YEAR}.tif"
 
 # COMMAND ----------
