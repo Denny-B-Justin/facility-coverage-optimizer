@@ -55,19 +55,34 @@ def _sanitize_country_name(name: str) -> str:
 
 # COMMAND ----------
 
-"""
-List of admin level 1 regions to process:
- - []: all provinces (auto-discovered from UC)
+# List of admin level 1 regions to process:
+#  - []: all provinces (auto-discovered from UC)
  
-Malawi - "Central Region","Northern Region","Southern Region"
-India - ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 
-            'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal']
+# Malawi - ["Central Region","Northern Region","Southern Region"]
 
-Cambordia = ['Banteay Meanchey', 'Battambang', 'Kampong Cham', 'Kampong Speu', 'Kampong Thom', 'Kampot', 'Kandal', 'Kep', 
-            'Koh Kong', 'Kratie', 'Mondul Kiri', 'Oddar Meanchey', 'Pailin', 'Phnom Penh', 'Preah Sihanouk', 'Preah Vihear', 
-            'Prey Veng', 'Pursat', 'Ratanak Kiri', 'Siemreap', 'Svay Rieng', 'Takeo', 'Tboung Khmum'']
-"""
-# Chad = ['Barh el Ghazel', 'Batha', 'Borkou', 'Chari-Baguirmi', 'Hadjer-Lamis', 'Kanem', 'Lac', 'Logone Occidental', 'Logone Oriental', 'Mandoul', 'Mayo-Kebbi Est', 'Mayo-Kebbi Ouest', 'Moyen-Chari', 'Ouaddaï', 'Salamat', 'Sila', 'Tandjilé', "Ville de N'Djamena", 'Wadi Fira']
+# India - ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal']
+
+# Cambodia = ['Banteay Meanchey', 'Battambang', 'Kampong Cham', 'Kampong Speu', 'Kampong Thom', 'Kampot', 'Kandal', 'Kep', 'Koh Kong', 'Kratie', 'Mondul Kiri', 'Oddar Meanchey', 'Pailin', 'Phnom Penh', 'Preah Sihanouk', 'Preah Vihear', 'Prey Veng', 'Pursat', 'Ratanak Kiri', 'Siemreap', 'Svay Rieng', 'Takeo', 'Tboung Khmum'']
+
+# Chad = ['Barh el Ghazel', 'Batha', 'Borkou', 'Chari-Baguirmi', 'Hadjer-Lamis', 'Kanem', 'Lac', 'Logone Occidental', 'Logone Oriental', 'Mandoul', 'Mayo-Kebbi Est', 'Mayo-Kebbi Ouest', 'Moyen-Chari', 'Ouaddaï', 'Salamat', 'Sila', Tandjilé', "Ville de N'Djamena", 'Wadi Fira']
+
+# Gabon = ['Estuaire', 'Haut-Ogooue', 'Moyen-Ogooue', 'Ngounie', 'Ogooue-Maritime', 'Ogooue-lolo']
+
+# The Gambia = ['Central River North', 'Central River South', 'Kanifing Municipal Council', 'Lower River', 'North Bank',  'Upper River', 'West Coast']
+
+# Afghanistan = ['Agadez', 'Communauté Urbaine de Niamey', 'Diffa', 'Dosso', 'Maradi', 'Tahoua', 'Tillabéri', 'Zinder']
+
+# Cameroon= ['Adamaoua', 'Centre', 'Est', 'Extrême - Nord', 'Littoral', 'Nord','Nord - Ouest', 'Ouest', 'Sud', 'Sud - Ouest']
+
+# Mali = ['District de Bamako', 'Gao', 'Kayes', 'Kidal', 'Koulikoro', 'Mopti', 'Sikasso', 'Ségou', 'Tombouctou']
+
+# Niger = ['Agadez', 'Communauté Urbaine de Niamey', 'Diffa', 'Dosso', 'Maradi', 'Tahoua', 'Tillabéri', 'Zinder']
+
+# Somalia = ['Awdal', 'Banadir', 'Bari', 'Bay', 'Galgaduud', 'Hiraan', 'Juba Hoose', 'Shabelle Dhexe', 'Shabelle Hoose', 'Sool', 'Togdheer', 'Woqooyi Galbeed']
+
+# Sudan = ['Al Jazeera', 'Blue Nile', 'Gadaref', 'Kassala', 'Khartoum', 'Nile', 'Northern', 'Northern Darfur', 'Northern Kordofan', 'Red Sea', 'Southern Darfur', 'Southern Kordofan', 'Western Darfur', 'White Nile']
+
+# Ethiopia = ['Addis Ababa', 'Afar', 'Amhara', 'Dire Dawa', 'Gambela', 'Harari', 'Oromia', 'SNNP', 'Sidama', 'Somali', 'South West Ethiopia', 'Tigray']
 
 # COMMAND ----------
 
@@ -76,8 +91,9 @@ Cambordia = ['Banteay Meanchey', 'Battambang', 'Kampong Cham', 'Kampong Speu', '
 # Include country-level (ADM0) processing
 INCLUDE_ADM_LEVEL0 = True
 
-
+# 
 ADM_LEVEL1_LIST = []
+
 # List of distances to analyze (in meters)
 DISTANCES_METERS = [2000, 4000, 5000, 10000]  # e.g., [5000, 10000] for 5km and 10km
 
