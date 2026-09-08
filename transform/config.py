@@ -23,7 +23,7 @@ import unicodedata
 if not os.environ.get("DATABRICKS_RUNTIME_VERSION"):
     from shared.core import (
         get_k_rings,
-        get_transform_table_names as _get_transform_table_names,
+        get_transform_table_names as _get_transform_table_names, _sanitize_adm_name,
         build_transform_combinations as _build_transform_combinations,
         H3_EDGE_LENGTH_M,
     )
@@ -43,18 +43,6 @@ else:
 
 # COMMAND ----------
 
-def _sanitize_country_name(name: str) -> str:
-    s = name.strip()
-    s = unicodedata.normalize("NFKD", s)
-    s = "".join(c for c in s if not unicodedata.combining(c))
-    s = s.lower()
-    s = re.sub(r"[^a-z0-9_]", "_", s)
-    s = re.sub(r"_+", "_", s)
-    return s.strip("_")
-
-
-# COMMAND ----------
-
 # List of admin level 1 regions to process:
 #  - []: all provinces (auto-discovered from UC)
  
@@ -62,7 +50,7 @@ def _sanitize_country_name(name: str) -> str:
 
 # India - ['Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana', 'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur', 'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana', 'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal']
 
-# Cambodia = ['Banteay Meanchey', 'Battambang', 'Kampong Cham', 'Kampong Speu', 'Kampong Thom', 'Kampot', 'Kandal', 'Kep', 'Koh Kong', 'Kratie', 'Mondul Kiri', 'Oddar Meanchey', 'Pailin', 'Phnom Penh', 'Preah Sihanouk', 'Preah Vihear', 'Prey Veng', 'Pursat', 'Ratanak Kiri', 'Siemreap', 'Svay Rieng', 'Takeo', 'Tboung Khmum'']
+# Cambodia = ['Banteay Meanchey', 'Battambang', 'Kampong Cham', 'Kampong Speu', 'Kampong Thom', 'Kampot', 'Kandal', 'Kep', 'Koh Kong', 'Kratie', 'Mondul Kiri', 'Oddar Meanchey', 'Pailin', 'Phnom Penh', 'Preah Sihanouk', 'Preah Vihear', 'Prey Veng', 'Pursat', 'Ratanak Kiri', 'Siemreap', 'Svay Rieng', 'Takeo', 'Tboung Khmum']
 
 # Chad = ['Barh el Ghazel', 'Batha', 'Borkou', 'Chari-Baguirmi', 'Hadjer-Lamis', 'Kanem', 'Lac', 'Logone Occidental', 'Logone Oriental', 'Mandoul', 'Mayo-Kebbi Est', 'Mayo-Kebbi Ouest', 'Moyen-Chari', 'Ouaddaï', 'Salamat', 'Sila', Tandjilé', "Ville de N'Djamena", 'Wadi Fira']
 
@@ -83,6 +71,14 @@ def _sanitize_country_name(name: str) -> str:
 # Sudan = ['Al Jazeera', 'Blue Nile', 'Gadaref', 'Kassala', 'Khartoum', 'Nile', 'Northern', 'Northern Darfur', 'Northern Kordofan', 'Red Sea', 'Southern Darfur', 'Southern Kordofan', 'Western Darfur', 'White Nile']
 
 # Ethiopia = ['Addis Ababa', 'Afar', 'Amhara', 'Dire Dawa', 'Gambela', 'Harari', 'Oromia', 'SNNP', 'Sidama', 'Somali', 'South West Ethiopia', 'Tigray']
+
+# Romania = ['Alba', 'Arad', 'Argeş', 'Bacău', 'Bihor', 'Bistriţa-Năsaud', 'Botoşani', 'Braşov', 'Brăila', 'Bucureşti', 'Buzău', 'Caraş-Severin', 'Cluj', 'Constanţa', 'Covasna', 'Călăraşi', 'Dolj', 'Dâmboviţa', 'Galaţi', 'Giurgiu', 'Gori', 'Harghita', 'Hunedoara',  'Iaşi', 'Ilfov', 'Maramureş', 'Mehedinţi', 'Mureş', 'Neamţ', 'Olt', 'Prahova', 'Satu Mare', 'Sibiu', 'Suceava', 'Sălaj', 'Teleorman', 'Timiş', 'Tulcea', 'Vaslui', 'Vrancea', 'Vâlcea']
+
+# Syria =  ['Al Ḥasakah', 'Aleppo', 'Ar Raqqah', "As Suwaydā'", 'Damascus', 'Dar`ā', 'Dayr az Zawr', 'Hama', 'Idlib', 'Latakia', 'Quneitra', 'Rif Dimashq', 'Ţarţūs', 'Ḥimṣ']
+
+# West Bank and Gaza = ['Al Khalil (Hebron)', 'Al Quds (Jerusalem)', 'Bethlehem', 'Deir al Balah', 'Gaza', 'Jabalya', 'Jenin', 'Khan Yunis', 'Nablus', 'Qalqiliya', 'Ramallah', 'Salfit', 'Tubas', 'Tulkarm']
+
+# Equatorial Guinea = ['Bioko Norte', 'Litoral']
 
 # COMMAND ----------
 
@@ -153,7 +149,7 @@ def get_transform_table_names(
 def _get_adm_level1_names_from_uc() -> list[str]:
     """Discover province names from LGU boundary table in UC."""
     spark = get_spark()
-    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_country_name(COUNTRY)}"
+    lgu_table = f"{UC_CATALOG}.{UC_SCHEMA}.wb_boundaries_lgu_{_sanitize_adm_name(COUNTRY)}"
     provinces_df = spark.sql(f"SELECT DISTINCT province FROM {lgu_table} ORDER BY province")
     provinces = [row.province for row in provinces_df.collect()]
     print(f"Discovered {len(provinces)} provinces from UC: {provinces}")

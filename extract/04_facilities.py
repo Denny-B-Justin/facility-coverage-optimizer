@@ -198,7 +198,7 @@ out center;
 
         return pd.DataFrame(rows, columns=["osm_id", "lat", "lon", "name"])
 
-    # Perform country extraction once, provice data can be cliped from country data
+    # Perform country extraction once, province data can be cliped from country data
     if adm_level1 == None:
         extract_country_cache = force
     else:
